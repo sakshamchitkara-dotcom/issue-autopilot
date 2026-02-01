@@ -24,7 +24,7 @@ def pypi_latest(name: str) -> str:
 
 
 def npm_latest(name: str) -> str:
-    return http_get_json(f"https://registry.npmjs.org/{urllib.parse.quote(name, safe='@')}/latest")["version"]
+    return http_get_json(f"https://registry.npmjs.org/{urllib.parse.quote(name, safe='@/')}/latest")["version"]
 
 
 def parse_requirements(text: str) -> list[tuple[str, str]]:
