@@ -1,0 +1,46 @@
+# Scheduled issue-autopilot run against this repository.
+# Dry-run by default: set the repository variable AUTOPILOT_APPLY=true (or pick apply on a
+# manual run) to let it actually open/close issues. Copy this file into any repo to use it there.
+name: issue-autopilot
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"  # Mondays 06:17 UTC
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Create/close issues (otherwise dry-run)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write
+  actions: read
+  pull-requests: read
+
+concurrency:
+  group: issue-autopilot
+  cancel-in-progress: false
+
+jobs:
+  autopilot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history for git blame ages
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "issue-autopilot[llm] @ git+https://github.com/sakshamchitkara-dotcom/issue-autopilot"
+      - name: Run
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}  # optional; templates are used when empty
+          APPLY: ${{ inputs.apply == true || vars.AUTOPILOT_APPLY == 'true' }}
+        run: |
+          FLAG=""
+          if [ "$APPLY" = "true" ]; then FLAG="--apply"; fi
+          autopilot file . --repo "$GITHUB_REPOSITORY" --max-issues 10 $FLAG
+          autopilot close-resolved . --repo "$GITHUB_REPOSITORY" $FLAG
