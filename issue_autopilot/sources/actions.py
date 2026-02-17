@@ -32,8 +32,10 @@ def scan(ctx: Context) -> list[Signal] | None:
         f"/repos/{repo}/actions/runs?branch={urllib.parse.quote(branch)}&status=completed", limit=100
     )
     latest: dict = {}
-    for run in runs:  # API returns newest first
-        latest.setdefault(run["workflow_id"], run)
+    for run in runs:  # don't trust API ordering across pages; pick newest explicitly
+        cur = latest.get(run["workflow_id"])
+        if cur is None or run["created_at"] > cur["created_at"]:
+            latest[run["workflow_id"]] = run
     signals = []
     for run in latest.values():
         if run.get("conclusion") != "failure":
