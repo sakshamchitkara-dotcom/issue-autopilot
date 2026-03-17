@@ -16,7 +16,7 @@ RULES = [
     (
         "generic-secret",
         re.compile(
-            r"""(?i)\b(?:api[_-]?key|secret(?:[_-]?key)?|passw(?:or)?d|access[_-]?token|auth[_-]?token)\b"""
+            r"""(?i)(?<![a-z0-9])(?:api[_-]?key|secret(?:[_-]?key)?|passw(?:or)?d|access[_-]?token|auth[_-]?token)\b"""
             r"""\s*[:=]\s*["']([^"'\s]{12,})["']"""
         ),
     ),

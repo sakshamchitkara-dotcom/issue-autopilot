@@ -12,7 +12,7 @@ def scan(tmp_path, files):
 
 
 def test_detects_and_redacts(tmp_path):
-    sigs = scan(tmp_path, {"cfg.py": f'KEY = "{AWS}"\nTOKEN = "{GHP}"\npassword = "hunter2hunter2"\n'})
+    sigs = scan(tmp_path, {"cfg.py": f'KEY = "{AWS}"\nTOKEN = "{GHP}"\ndb_password = "hunter2hunter2"\n'})
     assert [s.meta["rule"] for s in sigs] == ["aws-access-key", "github-token", "generic-secret"]
     for s in sigs:
         assert AWS not in s.summary and GHP not in s.summary and "hunter2hunter2" not in s.summary
