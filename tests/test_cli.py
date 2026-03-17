@@ -79,6 +79,7 @@ def test_close_resolved(repo, http, capsys):
     run("close-resolved", repo, "--repo", "o/r", "--sources", "todo")
     assert "would close #2" in capsys.readouterr().out and writes(http) == []
 
+    http.add("GET", f"{API}/repos/o/r/issues/2", {"state": "open"})
     http.add("POST", f"{API}/repos/o/r/issues/2/comments", {})
     http.add("PATCH", f"{API}/repos/o/r/issues/2", {})
     run("close-resolved", repo, "--repo", "o/r", "--sources", "todo", "--apply")
@@ -91,3 +92,11 @@ def test_scan_json(repo, http, capsys):
     import json
     data = json.loads(capsys.readouterr().out)
     assert sorted(d["group"] for d in data) == ["a.py", "b.py", "c.py"]
+
+
+def test_close_resolved_skips_already_closed(repo, http, capsys):
+    stale = render.render(triage.group([todos.Signal("todo", "gone.py", "TODO: x", path="gone.py", line=1)])[0])
+    base_routes(http, open_issues=[{"number": 2, "title": stale.title, "body": stale.body}])
+    http.add("GET", f"{API}/repos/o/r/issues/2", {"state": "closed"})  # list lagged behind
+    run("close-resolved", repo, "--repo", "o/r", "--sources", "todo", "--apply")
+    assert writes(http) == [] and "already closed #2" in capsys.readouterr().out

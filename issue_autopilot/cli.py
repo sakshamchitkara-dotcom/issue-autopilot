@@ -174,6 +174,10 @@ def cmd_close_resolved(args) -> int:
             print(f"  - would close #{gi['number']}: {gi['title']}")
             continue
         try:
+            # The issue list can lag a few seconds behind; re-check so re-runs never double-comment.
+            if ctx.gh.get(f"/repos/{ctx.repo}/issues/{gi['number']}")["state"] != "open":
+                print(f"  = already closed #{gi['number']}")
+                continue
             ctx.gh.comment(ctx.repo, gi["number"], "issue-autopilot: the signals behind this issue are no longer "
                                                   "detected, closing as resolved.")
             ctx.gh.close_issue(ctx.repo, gi["number"])
