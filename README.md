@@ -38,7 +38,7 @@ The token comes from `GITHUB_TOKEN` (or `GH_TOKEN`). If neither is set, it falls
 
 ```bash
 autopilot scan .                       # list signals (read-only)
-autopilot scan psf/requests --json     # remote repo: shallow-clones to a temp dir
+autopilot scan psf/requests --json     # remote repo: cloned into a temp dir
 autopilot file .                       # dry run: print the issues it would file
 autopilot file . --apply               # create them (needs push access; capped at 10)
 autopilot file . --apply --sources todo,secret --max-issues 3
