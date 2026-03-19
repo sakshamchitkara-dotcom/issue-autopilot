@@ -49,7 +49,7 @@ def scan(ctx: Context) -> list[Signal] | None:
     if not ctx.path:
         return None
     wanted = []  # (manifest, ecosystem, name, current)
-    for rel, text in iter_text_files(ctx.path):
+    for rel, text in iter_text_files(ctx.path, ctx.options.get("exclude")):
         base = rel.rsplit("/", 1)[-1]
         if re.fullmatch(r"requirements[\w.-]*\.txt", base):
             wanted += [(rel, "pypi", n, v) for n, v in parse_requirements(text)]

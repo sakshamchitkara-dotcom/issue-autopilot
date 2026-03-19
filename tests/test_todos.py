@@ -39,3 +39,9 @@ def test_works_outside_git(tmp_path):
 
 def test_skips_without_path():
     assert todos.scan(Context(path=None, repo="o/r", gh=None)) is None
+
+
+def test_exclude_globs(tmp_path):
+    root = make_repo(tmp_path, {"src/a.py": "# TODO: keep\n", "tests/fixtures/b.py": "# TODO: drop\n"})
+    sigs = todos.scan(Context(path=root, repo=None, gh=None, options={"exclude": ["tests/*"]}))
+    assert [s.path for s in sigs] == ["src/a.py"]
