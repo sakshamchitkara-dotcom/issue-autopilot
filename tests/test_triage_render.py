@@ -83,3 +83,18 @@ def test_summarizer_falls_back_to_template():
 def test_make_client_requires_key(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     assert summarize.make_client() is None
+
+
+def test_digest_tracks_signal_changes_not_blame_age():
+    base = triage.group(sigs())[1]  # todo a.py
+    assert triage.marker_digest(render.render(base).body) == base.digest
+    aged = triage.group(sigs())[1]
+    aged.signals[0].meta.update(author="Ada", age_days=400)
+    assert aged.digest == base.digest
+    more = triage.group(sigs() + [Signal("todo", "a.py", "TODO: new", "P3", "a.py", 7)])[1]
+    assert more.digest != base.digest and more.fingerprint == base.fingerprint
+
+
+def test_legacy_marker_still_parses():
+    body = "x\n<!-- issue-autopilot fp=0123456789abcdef kind=todo -->"
+    assert triage.parse_marker(body) == ("0123456789abcdef", "todo") and triage.marker_digest(body) is None
