@@ -49,3 +49,17 @@ def test_auth_header_not_forwarded_on_redirect(http):
 ])
 def test_parse_repo_slug(value, expected):
     assert parse_repo_slug(value) == expected
+
+
+def test_issue_listing_and_edits(http):
+    from issue_autopilot.github import GitHub
+    gh = GitHub("t")
+    http.add("GET", "https://api.github.com/repos/o/r/issues?state=all&per_page=100",
+             [{"number": 1}, {"number": 2, "pull_request": {}}])
+    http.add("PATCH", "https://api.github.com/repos/o/r/issues/1", {"number": 1})
+    http.add("POST", "https://api.github.com/repos/o/r/issues/1/labels", [])
+    assert [i["number"] for i in gh.issues("o/r", "all")] == [1]
+    gh.update_issue("o/r", 1, title="t", state="open")
+    gh.add_labels("o/r", 1, ["autopilot:resolved"])
+    assert http.calls[1][2] == {"title": "t", "state": "open"}
+    assert http.calls[2][2] == {"labels": ["autopilot:resolved"]}
