@@ -9,6 +9,7 @@ from .triage import marker
 MAX_ITEMS = 50
 MAX_BODY = 60_000  # GitHub's hard limit is 65,536 chars
 MENTION = re.compile(r"(?<![\w`/])@(?=[A-Za-z0-9])")
+AGE = re.compile(r"\d+d old")
 
 
 def no_pings(text: str) -> str:
@@ -81,3 +82,21 @@ def render(issue: Issue, title: str | None = None, intro: str | None = None) -> 
     tail = "\n\n" + footer(issue)  # marker must survive truncation
     issue.body = body[: MAX_BODY - len(tail)] + tail
     return issue
+
+
+def changelog(old_body: str | None, new_body: str) -> str:
+    """Comment text listing signal bullets added/removed between two bodies (blame age ignored)."""
+    def items(body):
+        return {AGE.sub("", ln): ln for ln in (body or "").splitlines() if ln.startswith("- [")}
+
+    old, new = items(old_body), items(new_body)
+    added = [new[k] for k in new if k not in old]
+    removed = [old[k] for k in old if k not in new]
+    out = ["issue-autopilot updated this issue because its signals changed."]
+    if added:
+        out += ["", "**Added**", *added]
+    if removed:
+        out += ["", "**Removed**", *removed]
+    if not (added or removed):
+        out += ["", "The signal details changed (for example priority or wording); see the updated description."]
+    return no_pings("\n".join(out))
