@@ -100,3 +100,23 @@ def test_close_resolved_skips_already_closed(repo, http, capsys):
     http.add("GET", f"{API}/repos/o/r/issues/2", {"state": "closed"})  # list lagged behind
     run("close-resolved", repo, "--repo", "o/r", "--sources", "todo", "--apply")
     assert writes(http) == [] and "already closed #2" in capsys.readouterr().out
+
+
+def test_changed_group_is_edited_in_place_with_changelog(repo, http, capsys):
+    # issue for a.py was filed when it only had a different TODO
+    old = render.render(triage.group([todos.Signal("todo", "a.py", "TODO: old", path="a.py", line=1)])[0])
+    labels = [{"name": "autopilot"}, {"name": "tech-debt"}, {"name": "P3"}, {"name": "needs-triage"}]
+    base_routes(http, open_issues=[{"number": 7, "title": old.title, "body": old.body, "labels": labels}])
+    run("file", repo, "--repo", "o/r", "--sources", "todo")
+    out = capsys.readouterr().out
+    assert "1 changed" in out and "[would update] #7" in out and writes(http) == []
+
+    http.add("PATCH", f"{API}/repos/o/r/issues/7", {})
+    http.add("POST", f"{API}/repos/o/r/issues/7/comments", {})
+    http.add("POST", f"{API}/repos/o/r/issues", {"number": 8, "html_url": "u"})
+    run("file", repo, "--repo", "o/r", "--sources", "todo", "--apply")
+    edit = [c for c in writes(http) if c[1].endswith("/issues/7")][0][2]
+    assert "needs-triage" in edit["labels"] and "TODO: one" in edit["body"]
+    note = [c for c in writes(http) if c[1].endswith("/issues/7/comments")][0][2]["body"]
+    assert "**Added**" in note and "TODO: one" in note and "**Removed**" in note and "TODO: old" in note
+    assert "updated #7" in capsys.readouterr().out
