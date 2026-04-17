@@ -1,11 +1,17 @@
-"""Dependency staleness: version specs in requirements*.txt / package.json vs registry latest."""
+"""Dependency staleness: version specs in requirements*.txt / pyproject.toml / package.json vs registry latest."""
 from __future__ import annotations
 
 import json
 import re
+import sys
 import urllib.error
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:  # pragma: no cover
+    import tomli as tomllib
 
 from ..github import http_get_json
 from ..models import Signal
@@ -116,16 +122,41 @@ def parse_package_json(text: str) -> list[tuple[str, str]]:
     return out
 
 
+def parse_pyproject(text: str) -> list[tuple[str, str]]:
+    """[project] dependencies (PEP 508 strings) plus poetry dependency tables, incl. groups."""
+    try:
+        data = tomllib.loads(text)
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError):
+        return []
+    out = []
+    for req in (data.get("project") or {}).get("dependencies") or []:
+        if m := REQ_LINE.match(str(req)):
+            out.append((m.group(1), m.group(2).strip()))
+    poetry = (data.get("tool") or {}).get("poetry") or {}
+    tables = [poetry.get("dependencies"), poetry.get("dev-dependencies")]
+    tables += [g.get("dependencies") for g in (poetry.get("group") or {}).values() if isinstance(g, dict)]
+    for table in filter(None, tables):
+        for name, spec in table.items():
+            if isinstance(spec, dict):
+                spec = spec.get("version")
+            if name.lower() != "python" and isinstance(spec, str) and bounds(spec):
+                out.append((name, spec.strip()))
+    return out
+
+
 def scan(ctx: Context) -> list[Signal] | None:
     if not ctx.path:
         return None
-    wanted = []  # (manifest, ecosystem, name, current)
+    wanted = []  # (manifest, ecosystem, name, spec)
     for rel, text in iter_text_files(ctx.path, ctx.options.get("exclude")):
         base = rel.rsplit("/", 1)[-1]
         if re.fullmatch(r"requirements[\w.-]*\.txt", base):
             wanted += [(rel, "pypi", n, v) for n, v in parse_requirements(text)]
         elif base == "package.json":
             wanted += [(rel, "npm", n, v) for n, v in parse_package_json(text)]
+        elif base == "pyproject.toml":
+            wanted += [(rel, "pypi", n, v) for n, v in parse_pyproject(text)]
+    wanted = [w for w in wanted if bounds(w[3])]  # nothing to compare for "*", "||" etc.
 
     errors: list[str] = []
 

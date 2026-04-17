@@ -9,7 +9,7 @@ description = "Turn repo signals (TODOs, failing CI, stale deps, stale PRs, leak
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-dependencies = []
+dependencies = ["tomli>=1.1; python_version < '3.11'"]
 
 [project.optional-dependencies]
 llm = ["anthropic>=1.0"]
