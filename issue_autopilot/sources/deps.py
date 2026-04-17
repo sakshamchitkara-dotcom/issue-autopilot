@@ -1,4 +1,4 @@
-"""Dependency staleness: pinned versions in requirements*.txt / package.json vs registry latest."""
+"""Dependency staleness: version specs in requirements*.txt / package.json vs registry latest."""
 from __future__ import annotations
 
 import json
@@ -11,12 +11,83 @@ from ..github import http_get_json
 from ..models import Signal
 from . import Context, iter_text_files
 
-REQ_LINE = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)(?:\[[^\]]*\])?\s*==\s*([^\s;#]+)")
-NPM_VERSION = re.compile(r"^[\^~]?(\d+(?:\.\d+)*)")
+# name[extras] <spec> ; markers  -- lines without a version spec (or `name @ url`) are skipped
+REQ_LINE = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:\[[^\]]*\])?\s*((?:===?|~=|>=|<=|!=|<|>)[^;#]*)")
+NPM_SPEC = re.compile(r"^(?:[\^~]|[<>]=?|=)?\s*v?\d")
+CLAUSE = re.compile(r"^(===|==|~=|>=|<=|!=|<|>|\^|~|=)?v?(\d+(?:\.(?:\d+|\*|x))*)")
 
 
 def version_tuple(v: str) -> tuple[int, ...]:
     return tuple(int(x) for x in re.findall(r"\d+", v.split("-")[0].split("+")[0])[:4])
+
+
+def _pad(t: tuple[int, ...]) -> tuple[int, ...]:
+    return t + (0,) * (4 - len(t))
+
+
+def _bump(t: tuple[int, ...], idx: int) -> tuple[int, ...]:
+    """Smallest version above every release sharing t[:idx+1], e.g. (1, 4, 2) @1 -> (1, 5)."""
+    return t[:idx] + (t[idx] + 1,)
+
+
+def bounds(spec: str) -> tuple[tuple, tuple | None, bool, bool] | None:
+    """Parse a PEP 440 / npm / poetry spec into (floor, upper, upper_inclusive, exact).
+
+    Handles ==, ===, bare pins, wildcards (1.2.* / 1.x), >=, >, <, <=, ~=, ^ and ~, joined by
+    commas or spaces. Returns None when there is nothing usable (e.g. "||" alternatives).
+    """
+    # ponytail: no support for npm "||" or hyphen ranges; those specs are skipped, not guessed.
+    if "||" in spec or " - " in spec:
+        return None
+    spec = re.sub(r"(===|==|~=|>=|<=|!=|<|>|\^|~|=)\s+", r"\1", spec.strip())
+    floor, upper, inclusive, exact = None, None, False, False
+    for clause in filter(None, re.split(r"[,\s]+", spec)):
+        m = CLAUSE.match(clause)
+        if not m:
+            return None
+        op, raw = m.group(1) or "==", m.group(2)
+        parts = raw.split(".")
+        wild = next((i for i, x in enumerate(parts) if x in ("*", "x")), None)
+        if wild is not None:
+            parts = parts[:wild]
+        v = tuple(int(x) for x in parts[:4])
+        if op == "!=" or not v and wild is None:
+            continue
+        if op in ("==", "===", "=") and wild is not None:
+            floor, upper = v, (_bump(v, len(v) - 1) if v else None)
+        elif op in ("==", "===", "="):
+            floor, exact = v, True
+        elif op in (">=", ">"):
+            floor = v
+        elif op == "<":
+            upper = v
+        elif op == "<=":
+            upper, inclusive = v, True
+        elif op == "~=":
+            if len(v) < 2:
+                return None
+            floor, upper = v, _bump(v, len(v) - 2)
+        elif op == "^":
+            nz = next((i for i, x in enumerate(v) if x), len(v) - 1)
+            floor, upper = v, _bump(v, nz)
+        elif op == "~":
+            floor, upper = v, _bump(v, 0 if len(v) == 1 else 1)
+    if floor is None:
+        return None
+    return floor, upper, inclusive, exact
+
+
+def behind(spec: str, latest: str) -> bool:
+    """True when `latest` is outside what `spec` allows (pins: newer than the pin)."""
+    b, new = bounds(spec), _pad(version_tuple(latest))
+    if not b or not version_tuple(latest):
+        return False
+    floor, upper, inclusive, exact = b
+    if exact:
+        return new > _pad(floor)
+    if upper is None:
+        return False
+    return new > _pad(upper) if inclusive else new >= _pad(upper)
 
 
 def pypi_latest(name: str) -> str:
@@ -28,7 +99,7 @@ def npm_latest(name: str) -> str:
 
 
 def parse_requirements(text: str) -> list[tuple[str, str]]:
-    return [(m.group(1), m.group(2)) for line in text.splitlines() if (m := REQ_LINE.match(line))]
+    return [(m.group(1), m.group(2).strip()) for line in text.splitlines() if (m := REQ_LINE.match(line))]
 
 
 def parse_package_json(text: str) -> list[tuple[str, str]]:
@@ -39,9 +110,9 @@ def parse_package_json(text: str) -> list[tuple[str, str]]:
     out = []
     for section in ("dependencies", "devDependencies"):
         for name, spec in (data.get(section) or {}).items():
-            m = NPM_VERSION.match(str(spec).strip())
-            if m:  # skip "*", "latest", git urls, workspace: etc.
-                out.append((name, m.group(1)))
+            spec = str(spec).strip()
+            if NPM_SPEC.match(spec):  # skip "*", "latest", git urls, workspace: etc.
+                out.append((name, spec))
     return out
 
 
@@ -78,21 +149,20 @@ def scan(ctx: Context) -> list[Signal] | None:
         raise RuntimeError(f"{len(errors)} registry lookup(s) failed, e.g. {errors[0]}")
 
     signals = []
-    for (manifest, eco, name, current), newest in zip(wanted, latest):
-        if not newest:
+    for (manifest, eco, name, spec), newest in zip(wanted, latest):
+        if not newest or not behind(spec, newest):
             continue
-        cur, new = version_tuple(current), version_tuple(newest)
-        if not cur or not new or new <= cur:
-            continue
-        major = new[0] > cur[0]
+        floor = bounds(spec)[0]
+        major = version_tuple(newest)[0] > floor[0]
+        shown = spec.lstrip("=") if re.fullmatch(r"==?\d[\w.]*", spec) else spec
         signals.append(
             Signal(
                 kind="deps",
                 group=manifest,
-                summary=f"{name} {current} → {newest}" + (" (major)" if major else ""),
+                summary=f"{name} {shown} → {newest}" + (" (major)" if major else ""),
                 priority="P2" if major else "P3",
                 path=manifest,
-                meta={"ecosystem": eco, "package": name, "current": current, "latest": newest},
+                meta={"ecosystem": eco, "package": name, "spec": spec, "latest": newest},
             )
         )
     return signals
