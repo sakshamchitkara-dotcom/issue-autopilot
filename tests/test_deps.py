@@ -26,16 +26,19 @@ def test_range_semantics(spec, latest, expected):
 
 
 def test_scan_flags_outdated(tmp_path, http):
-    (tmp_path / "requirements.txt").write_text("requests==2.0.0\nidna==3.7\n")
+    (tmp_path / "requirements.txt").write_text("requests==2.0.0\nidna==3.7\nflask>=1.0\nclick>=8.0\n")
     (tmp_path / "package.json").write_text(json.dumps({"dependencies": {"react": "^17.0.2", "@scope/pkg": "1.0.0"}}))
     http.add("GET", "https://pypi.org/pypi/requests/json", {"info": {"version": "2.32.3"}})
     http.add("GET", "https://pypi.org/pypi/idna/json", {"info": {"version": "3.7"}})
+    http.add("GET", "https://pypi.org/pypi/flask/json", {"info": {"version": "3.1.0"}})
+    http.add("GET", "https://pypi.org/pypi/click/json", {"info": {"version": "8.2.0"}})
     http.add("GET", "https://registry.npmjs.org/react/latest", {"version": "19.1.0"})
     http.add("GET", "https://registry.npmjs.org/@scope/pkg/latest", {"message": "nope"}, status=404)
     ctx = Context(path=str(tmp_path), repo=None, gh=None)
     sigs = sorted(deps.scan(ctx), key=lambda s: s.summary)
     assert [(s.summary, s.priority, s.group) for s in sigs] == [
-        ("react ^17.0.2 → 19.1.0 (major)", "P2", "package.json"),
+        ("flask >=1.0 → 3.1.0 (allowed, but the floor is 2 majors behind)", "P3", "requirements.txt"),
+        ("react ^17.0.2 → 19.1.0 (2 majors behind)", "P2", "package.json"),
         ("requests 2.0.0 → 2.32.3", "P3", "requirements.txt"),
     ]
     assert any("@scope/pkg" in w for w in ctx.warnings)
@@ -75,4 +78,10 @@ def test_scan_reads_pyproject(tmp_path, http):
     (tmp_path / "pyproject.toml").write_text('[tool.poetry.dependencies]\npython = "^3.10"\ndjango = "^3.2"\n')
     http.add("GET", "https://pypi.org/pypi/django/json", {"info": {"version": "5.2.1"}})
     sigs = deps.scan(Context(path=str(tmp_path), repo=None, gh=None))
-    assert [(s.group, s.summary) for s in sigs] == [("pyproject.toml", "django ^3.2 → 5.2.1 (major)")]
+    assert [(s.group, s.summary) for s in sigs] == [("pyproject.toml", "django ^3.2 → 5.2.1 (2 majors behind)")]
+
+
+def test_majors_behind():
+    assert deps.majors_behind("==1.1.4", "3.1.0") == 2
+    assert deps.majors_behind("^0.4", "1.0.0") == 1
+    assert deps.majors_behind("~=2.1", "2.9") == 0 and deps.majors_behind("||", "2") == 0
