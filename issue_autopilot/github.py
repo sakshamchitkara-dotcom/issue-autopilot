@@ -38,6 +38,13 @@ def http_get_json(url: str, headers: dict | None = None, timeout: float = 20):
         return json.loads(resp.read().decode())
 
 
+def http_post_json(url: str, body: dict, timeout: float = 30):
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST",
+                                 headers={"User-Agent": USER_AGENT, "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return json.loads(resp.read().decode())
+
+
 class GitHub:
     def __init__(self, token: str | None, api: str = API):
         self.token = token

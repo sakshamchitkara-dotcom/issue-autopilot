@@ -150,10 +150,9 @@ def parse_pyproject(text: str) -> list[tuple[str, str]]:
     return out
 
 
-def scan(ctx: Context) -> list[Signal] | None:
-    if not ctx.path:
-        return None
-    wanted = []  # (manifest, ecosystem, name, spec)
+def manifest_deps(ctx: Context) -> list[tuple[str, str, str, str]]:
+    """(manifest, ecosystem, name, spec) for every comparable dependency in the checkout."""
+    wanted = []
     for rel, text in iter_text_files(ctx.path, ctx.options.get("exclude")):
         base = rel.rsplit("/", 1)[-1]
         if re.fullmatch(r"requirements[\w.-]*\.txt", base):
@@ -162,7 +161,13 @@ def scan(ctx: Context) -> list[Signal] | None:
             wanted += [(rel, "npm", n, v) for n, v in parse_package_json(text)]
         elif base == "pyproject.toml":
             wanted += [(rel, "pypi", n, v) for n, v in parse_pyproject(text)]
-    wanted = [w for w in wanted if bounds(w[3])]  # nothing to compare for "*", "||" etc.
+    return [w for w in wanted if bounds(w[3])]  # nothing to compare for "*", "||" etc.
+
+
+def scan(ctx: Context) -> list[Signal] | None:
+    if not ctx.path:
+        return None
+    wanted = manifest_deps(ctx)
 
     errors: list[str] = []
 

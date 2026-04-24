@@ -24,6 +24,8 @@ def title_for(issue: Issue) -> str:
         return f"Tech debt: {n} {'/'.join(tags)} comment{'s' * (n != 1)} in {g}"
     if issue.kind == "secret":
         return f"Security: possible hardcoded secret{'s' * (n != 1)} in {g}"
+    if issue.kind == "advisory":
+        return f"Security: {n} known vulnerabilit{'ies' if n != 1 else 'y'} in dependencies from {g}"
     if issue.kind == "deps":
         return f"Dependencies: {n} outdated package{'s' * (n != 1)} in {g}"
     if issue.kind == "ci":
@@ -37,6 +39,8 @@ def intro_for(issue: Issue) -> str:
     return {
         "todo": "These comments mark known shortcuts or unfinished work. Resolve them or convert them into tracked tasks.",
         "secret": "Lines below match patterns for credentials. If any are real: **rotate the credential first**, then remove it from the code and history.",
+        "advisory": "These dependency versions have published security advisories. Upgrade to a fixed release; "
+                    "if none exists, check whether the vulnerable code path is used.",
         "deps": "Pinned dependencies are behind the latest release on their registry. Review changelogs and upgrade.",
         "ci": "The latest run of this workflow on the default branch failed. Excerpt of the failing job log is below.",
         "stale-pr": "These pull requests have had no activity for a while. Merge, close, or ping for review.",
