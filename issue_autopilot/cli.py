@@ -10,7 +10,7 @@ import sys
 import tempfile
 from dataclasses import asdict
 
-from . import triage
+from . import owners, triage
 from .github import GitHub, GitHubError, get_token, parse_repo_slug, repo_from_checkout
 from .models import PRIORITIES, Issue
 from .render import changelog, render
@@ -128,6 +128,23 @@ def cmd_file(args) -> int:
     for issue in p.create + p.update + p.reopen:
         polish(issue, client) if client else render(issue)
 
+    rules = owners.load_codeowners(ctx.path) if ctx.path else []
+    owner = {i.fingerprint: owners.owner_for(ctx.path, i, rules, ctx.gh, ctx.repo)
+             for i in p.create + p.update + p.reopen}
+
+    def owner_note(issue: Issue) -> str:
+        o = owner.get(issue.fingerprint)
+        if not o:
+            return ""
+        verb = "assign" if args.assign and args.apply else "would assign" if args.assign else "owner"
+        return f"\n     {verb}: {o[0]} (via {o[1]})"
+
+    def assignees(issue: Issue, gi: dict | None = None) -> list[str]:
+        o = owner.get(issue.fingerprint)
+        if not (args.assign and o) or (gi and gi.get("assignees")):  # never override a human's choice
+            return []
+        return [o[0]]
+
     mode = "apply" if args.apply else "dry-run"
     where = ctx.repo or "(no GitHub repo)"
     print(f"[{mode}] {len(issues)} issue group(s): {len(p.create)} new, {len(p.update)} changed, "
@@ -147,29 +164,31 @@ def cmd_file(args) -> int:
         gi = existing[issue.fingerprint]
         note = changelog(gi.get("body"), issue.body)
         if not args.apply:
-            print(f"\n  ~ [would update] #{gi['number']}: {issue.title}\n    changelog comment:")
+            print(f"\n  ~ [would update] #{gi['number']}: {issue.title}{owner_note(issue)}\n    changelog comment:")
             print(indent(note))
             continue
         # Keep labels a human added; only swap our own priority label.
         keep = [lb["name"] for lb in gi.get("labels", []) if lb["name"] not in PRIORITIES]
         labels = list(dict.fromkeys(keep + issue.labels))
+        fields = {"assignees": a} if (a := assignees(issue, gi)) else {}
         try:
-            ctx.gh.update_issue(ctx.repo, gi["number"], title=issue.title, body=issue.body, labels=labels)
+            ctx.gh.update_issue(ctx.repo, gi["number"], title=issue.title, body=issue.body, labels=labels, **fields)
             ctx.gh.comment(ctx.repo, gi["number"], note)
         except GitHubError as e:
             print(f"  ! failed to update #{gi['number']}: {e}", file=sys.stderr)
             continue
         edited += 1
-        print(f"  ~ updated #{gi['number']}: {issue.title}")
+        print(f"  ~ updated #{gi['number']}: {issue.title}{owner_note(issue) if fields else ''}")
 
     reopened = 0
     for issue in p.reopen:
         gi = existing[issue.fingerprint]
         if not args.apply:
-            print(f"  ^ [would reopen] #{gi['number']}: {issue.title}")
+            print(f"  ^ [would reopen] #{gi['number']}: {issue.title}{owner_note(issue)}")
             continue
+        fields = {"assignees": a} if (a := assignees(issue, gi)) else {}
         try:
-            ctx.gh.update_issue(ctx.repo, gi["number"], state="open", title=issue.title, body=issue.body)
+            ctx.gh.update_issue(ctx.repo, gi["number"], state="open", title=issue.title, body=issue.body, **fields)
             ctx.gh.comment(ctx.repo, gi["number"], "issue-autopilot reopened this issue (`--reopen`): its signals "
                                                    "are still present.\n\n" + changelog(gi.get("body"), issue.body))
         except GitHubError as e:
@@ -182,16 +201,17 @@ def cmd_file(args) -> int:
     for n, issue in enumerate(p.create, 1):
         if not args.apply:
             print(f"\n  {n}. [would create] {issue.title}")
-            print(f"     labels: {', '.join(issue.labels)}   fp={issue.fingerprint}")
+            print(f"     labels: {', '.join(issue.labels)}   fp={issue.fingerprint}{owner_note(issue)}")
             print(indent(issue.body))
             continue
         try:
-            gi = ctx.gh.create_issue(ctx.repo, issue.title, issue.body, issue.labels)
+            gi = ctx.gh.create_issue(ctx.repo, issue.title, issue.body, issue.labels, assignees(issue))
         except GitHubError as e:
             print(f"  ! failed to create '{issue.title}': {e}", file=sys.stderr)
             continue
         created += 1
-        print(f"  + created #{gi['number']}: {issue.title}\n    {gi['html_url']}")
+        print(f"  + created #{gi['number']}: {issue.title}\n    {gi['html_url']}"
+              + (owner_note(issue) if assignees(issue) else ""))
     if args.apply:
         print(f"\ncreated {created}, updated {edited}, reopened {reopened} issue(s) on {ctx.repo} as {login}")
     else:
@@ -257,6 +277,8 @@ def build_parser() -> argparse.ArgumentParser:
     f.add_argument("--apply", action="store_true", help="actually create issues")
     f.add_argument("--max-issues", type=int, default=DEFAULT_CAP, help=f"per-run cap (default {DEFAULT_CAP})")
     f.add_argument("--no-llm", action="store_true", help="skip the Claude summarizer even if a key is set")
+    f.add_argument("--assign", action="store_true",
+                   help="assign each issue to its CODEOWNERS / git blame owner (only written with --apply)")
     f.add_argument("--reopen", action="store_true",
                    help="reopen autopilot issues a human closed if their signals are still present")
     f.set_defaults(func=cmd_file)

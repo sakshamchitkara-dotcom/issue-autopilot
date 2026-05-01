@@ -114,10 +114,12 @@ class GitHub:
         """PATCH any of title/body/labels/state/assignees."""
         return self.request("PATCH", f"/repos/{full_name}/issues/{number}", fields)[0]
 
-    def create_issue(self, full_name: str, title: str, body: str, labels: list[str]) -> dict:
-        return self.request(
-            "POST", f"/repos/{full_name}/issues", {"title": title, "body": body, "labels": labels}
-        )[0]
+    def create_issue(self, full_name: str, title: str, body: str, labels: list[str],
+                     assignees: list[str] | None = None) -> dict:
+        payload = {"title": title, "body": body, "labels": labels}
+        if assignees:
+            payload["assignees"] = assignees
+        return self.request("POST", f"/repos/{full_name}/issues", payload)[0]
 
     def comment(self, full_name: str, number: int, body: str) -> None:
         self.request("POST", f"/repos/{full_name}/issues/{number}/comments", {"body": body})
