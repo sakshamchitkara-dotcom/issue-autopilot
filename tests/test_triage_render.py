@@ -125,3 +125,8 @@ def test_index_prefers_open_then_newest():
     assert idx[triage.group(sigs())[0].fingerprint]["number"] == 1
     assert triage.closed_by_human({"state": "closed", "labels": [{"name": "autopilot:resolved"}]}) is False
     assert triage.closed_by_human({"state": "closed", "labels": []}) is True
+
+
+def test_changelog_for_legacy_issue_says_refreshed():
+    body = "- [P3] `a.py:1` TODO: x\n<!-- issue-autopilot fp=0123456789abcdef kind=todo -->"
+    assert "refreshed" in render.changelog(body, body.replace("todo -->", "todo sig=0123456789ab -->"))

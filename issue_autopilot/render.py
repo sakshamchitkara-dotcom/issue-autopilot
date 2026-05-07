@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 
 from .models import Issue, Signal
-from .triage import marker
+from .triage import marker, marker_digest
 
 MAX_ITEMS = 50
 MAX_BODY = 60_000  # GitHub's hard limit is 65,536 chars
@@ -41,7 +41,8 @@ def intro_for(issue: Issue) -> str:
         "secret": "Lines below match patterns for credentials. If any are real: **rotate the credential first**, then remove it from the code and history.",
         "advisory": "These dependency versions have published security advisories. Upgrade to a fixed release; "
                     "if none exists, check whether the vulnerable code path is used.",
-        "deps": "Pinned dependencies are behind the latest release on their registry. Review changelogs and upgrade.",
+        "deps": "These dependency specs don't allow the latest release on their registry, or their floor is a major "
+                "version or more behind it. Review changelogs and upgrade.",
         "ci": "The latest run of this workflow on the default branch failed. Excerpt of the failing job log is below.",
         "stale-pr": "These pull requests have had no activity for a while. Merge, close, or ping for review.",
     }.get(issue.kind, "Automatically detected signals.")
@@ -102,5 +103,8 @@ def changelog(old_body: str | None, new_body: str) -> str:
     if removed:
         out += ["", "**Removed**", *removed]
     if not (added or removed):
-        out += ["", "The signal details changed (for example priority or wording); see the updated description."]
+        if marker_digest(old_body) is None:  # filed by v0.1, which had no digest to compare
+            out = ["issue-autopilot refreshed this issue to its current format; the signals are unchanged."]
+        else:
+            out += ["", "The signal details changed (for example priority or wording); see the updated description."]
     return no_pings("\n".join(out))
