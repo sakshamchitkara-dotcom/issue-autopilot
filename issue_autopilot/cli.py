@@ -1,4 +1,4 @@
-"""autopilot CLI: scan | file | close-resolved. Every write path is dry-run unless --apply."""
+"""autopilot CLI: scan | file | report | close-resolved. Every write path is dry-run unless --apply."""
 from __future__ import annotations
 
 import argparse
@@ -9,11 +9,12 @@ import subprocess
 import sys
 import tempfile
 from dataclasses import asdict
+from datetime import datetime, timezone
 
 from . import owners, triage
 from .github import GitHub, GitHubError, get_token, parse_repo_slug, repo_from_checkout
 from .models import PRIORITIES, Issue
-from .render import changelog, render
+from .render import changelog, no_pings, render
 from .sources import Context, run_sources
 from .summarize import make_client, polish
 
@@ -252,6 +253,49 @@ def cmd_close_resolved(args) -> int:
     return 0
 
 
+def report_md(ctx: Context, issues: list[Issue], ran: list[str], existing: dict[str, dict]) -> str:
+    p = triage.plan(issues, existing, cap=max(len(issues), 1))
+    status = {id(i): s for s, group in (("new", p.create), ("changed", p.update), ("up to date", p.unchanged),
+                                        ("closed by a human", p.suppressed)) for i in group}
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    out = [f"# issue-autopilot report: {ctx.repo or ctx.path}", "",
+           f"_Generated {now}. Sources: {', '.join(ran) or 'none'}._", "",
+           "| Priority | Groups | Signals |", "|---|---:|---:|"]
+    for pri in PRIORITIES:
+        grp = [i for i in issues if i.priority == pri]
+        out.append(f"| {pri} | {len(grp)} | {sum(len(i.signals) for i in grp)} |")
+    out += ["", "## Groups", ""]
+    if issues:
+        out += ["| Priority | Kind | Group | Signals | Issue | Status |", "|---|---|---|---:|---|---|"]
+        for i in issues:
+            gi = existing.get(i.fingerprint)
+            ref = f"#{gi['number']}" if gi and status[id(i)] != "new" else "-"
+            group = i.group.replace("|", "\\|")
+            out.append(f"| {i.priority} | {i.kind} | `{group}` | {len(i.signals)} | {ref} | {status[id(i)]} |")
+    else:
+        out.append("No signals found.")
+    gone = triage.resolved(existing, issues, ran)
+    if gone:
+        out += ["", "## Resolved (open issues whose signals are gone)", ""]
+        out += [f"- #{gi['number']} {gi['title']}" for gi in gone]
+    if ctx.warnings:
+        out += ["", "## Warnings", ""] + [f"- {w}" for w in ctx.warnings]
+    return no_pings("\n".join(out)) + "\n"
+
+
+def cmd_report(args) -> int:
+    with tempfile.TemporaryDirectory() as tmp:
+        ctx, issues, ran = collect(args, tmp)
+    md = report_md(ctx, issues, ran, existing_bot_issues(ctx))
+    if args.out:
+        with open(args.out, "w") as fh:
+            fh.write(md)
+        print(f"wrote {args.out}", file=sys.stderr)
+    else:
+        print(md, end="")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="autopilot", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -282,6 +326,11 @@ def build_parser() -> argparse.ArgumentParser:
     f.add_argument("--reopen", action="store_true",
                    help="reopen autopilot issues a human closed if their signals are still present")
     f.set_defaults(func=cmd_file)
+
+    r = sub.add_parser("report", help="markdown summary of signals and their issues (read-only)")
+    common(r, ".")
+    r.add_argument("--out", metavar="FILE", help="write the report here instead of stdout")
+    r.set_defaults(func=cmd_report)
 
     c = sub.add_parser("close-resolved", help="close autopilot issues whose signals are gone (dry-run unless --apply)")
     common(c, ".")
