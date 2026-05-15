@@ -4,12 +4,13 @@ from __future__ import annotations
 import re
 
 from .models import Issue, Signal
-from .triage import marker, marker_digest
+from .triage import marker
 
 MAX_ITEMS = 50
 MAX_BODY = 60_000  # GitHub's hard limit is 65,536 chars
 MENTION = re.compile(r"(?<![\w`/])@(?=[A-Za-z0-9])")
 AGE = re.compile(r"\d+d old")
+LINE_NO = re.compile(r"(`[^`\s]+):\d+`")
 
 
 def no_pings(text: str) -> str:
@@ -90,9 +91,11 @@ def render(issue: Issue, title: str | None = None, intro: str | None = None) -> 
 
 
 def changelog(old_body: str | None, new_body: str) -> str:
-    """Comment text listing signal bullets added/removed between two bodies (blame age ignored)."""
+    """Comment listing signal bullets added/removed between two bodies; "" when nothing visible changed.
+
+    Line moves and blame age are ignored."""
     def items(body):
-        return {AGE.sub("", ln): ln for ln in (body or "").splitlines() if ln.startswith("- [")}
+        return {LINE_NO.sub(r"\1`", AGE.sub("", ln)): ln for ln in (body or "").splitlines() if ln.startswith("- [")}
 
     old, new = items(old_body), items(new_body)
     added = [new[k] for k in new if k not in old]
@@ -102,9 +105,6 @@ def changelog(old_body: str | None, new_body: str) -> str:
         out += ["", "**Added**", *added]
     if removed:
         out += ["", "**Removed**", *removed]
-    if not (added or removed):
-        if marker_digest(old_body) is None:  # filed by v0.1, which had no digest to compare
-            out = ["issue-autopilot refreshed this issue to its current format; the signals are unchanged."]
-        else:
-            out += ["", "The signal details changed (for example priority or wording); see the updated description."]
+    if not (added or removed):  # only line numbers or formatting moved: not worth a notification
+        return ""
     return no_pings("\n".join(out))

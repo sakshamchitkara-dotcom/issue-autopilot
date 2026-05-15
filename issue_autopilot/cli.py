@@ -165,8 +165,8 @@ def cmd_file(args) -> int:
         gi = existing[issue.fingerprint]
         note = changelog(gi.get("body"), issue.body)
         if not args.apply:
-            print(f"\n  ~ [would update] #{gi['number']}: {issue.title}{owner_note(issue)}\n    changelog comment:")
-            print(indent(note))
+            print(f"\n  ~ [would update] #{gi['number']}: {issue.title}{owner_note(issue)}")
+            print("    changelog comment:\n" + indent(note) if note else "    (line numbers/format only: edit without comment)")
             continue
         # Keep labels a human added; only swap our own priority label.
         keep = [lb["name"] for lb in gi.get("labels", []) if lb["name"] not in PRIORITIES]
@@ -174,7 +174,8 @@ def cmd_file(args) -> int:
         fields = {"assignees": a} if (a := assignees(issue, gi)) else {}
         try:
             ctx.gh.update_issue(ctx.repo, gi["number"], title=issue.title, body=issue.body, labels=labels, **fields)
-            ctx.gh.comment(ctx.repo, gi["number"], note)
+            if note:
+                ctx.gh.comment(ctx.repo, gi["number"], note)
         except GitHubError as e:
             print(f"  ! failed to update #{gi['number']}: {e}", file=sys.stderr)
             continue
@@ -190,8 +191,8 @@ def cmd_file(args) -> int:
         fields = {"assignees": a} if (a := assignees(issue, gi)) else {}
         try:
             ctx.gh.update_issue(ctx.repo, gi["number"], state="open", title=issue.title, body=issue.body, **fields)
-            ctx.gh.comment(ctx.repo, gi["number"], "issue-autopilot reopened this issue (`--reopen`): its signals "
-                                                   "are still present.\n\n" + changelog(gi.get("body"), issue.body))
+            ctx.gh.comment(ctx.repo, gi["number"], ("issue-autopilot reopened this issue (`--reopen`): its signals "
+                                                    "are still present.\n\n" + changelog(gi.get("body"), issue.body)).strip())
         except GitHubError as e:
             print(f"  ! failed to reopen #{gi['number']}: {e}", file=sys.stderr)
             continue

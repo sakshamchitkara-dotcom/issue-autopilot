@@ -54,7 +54,7 @@ def test_plan_flags_changed_and_legacy_groups():
 
 def test_changelog_lists_added_and_removed_ignoring_age():
     old = "- [P3] `a.py:1` TODO: x (Ada, 3d old)\n- [P3] `a.py:2` TODO: y (Ada, 3d old)\n"
-    new = "- [P3] `a.py:1` TODO: x (Ada, 9d old)\n- [P2] `a.py:5` FIXME: z @bob\n"
+    new = "- [P3] `a.py:4` TODO: x (Ada, 9d old)\n- [P2] `a.py:5` FIXME: z @bob\n"
     note = render.changelog(old, new)
     assert "**Added**\n- [P2] `a.py:5` FIXME: z @\u200bbob" in note
     assert "**Removed**\n- [P3] `a.py:2` TODO: y" in note and "TODO: x" not in note
@@ -108,6 +108,7 @@ def test_digest_tracks_signal_changes_not_blame_age():
     assert triage.marker_digest(render.render(base).body) == base.digest
     aged = triage.group(sigs())[1]
     aged.signals[0].meta.update(author="Ada", age_days=400)
+    aged.signals[1].line += 5  # code was inserted above the TODO
     assert aged.digest == base.digest
     more = triage.group(sigs() + [Signal("todo", "a.py", "TODO: new", "P3", "a.py", 7)])[1]
     assert more.digest != base.digest and more.fingerprint == base.fingerprint
@@ -127,6 +128,6 @@ def test_index_prefers_open_then_newest():
     assert triage.closed_by_human({"state": "closed", "labels": []}) is True
 
 
-def test_changelog_for_legacy_issue_says_refreshed():
+def test_changelog_empty_when_only_lines_or_marker_moved():
     body = "- [P3] `a.py:1` TODO: x\n<!-- issue-autopilot fp=0123456789abcdef kind=todo -->"
-    assert "refreshed" in render.changelog(body, body.replace("todo -->", "todo sig=0123456789ab -->"))
+    assert render.changelog(body, body.replace("a.py:1", "a.py:9").replace("todo -->", "todo sig=0123456789ab -->")) == ""
