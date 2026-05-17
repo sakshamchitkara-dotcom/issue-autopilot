@@ -10,6 +10,7 @@ MAX_ITEMS = 50
 MAX_BODY = 60_000  # GitHub's hard limit is 65,536 chars
 MENTION = re.compile(r"(?<![\w`/])@(?=[A-Za-z0-9])")
 AGE = re.compile(r"\d+d old")
+RUN_LINK = re.compile(r"\[run\]\([^)]*\) @ \w*")
 LINE_NO = re.compile(r"(`[^`\s]+):\d+`")
 
 
@@ -93,9 +94,10 @@ def render(issue: Issue, title: str | None = None, intro: str | None = None) -> 
 def changelog(old_body: str | None, new_body: str) -> str:
     """Comment listing signal bullets added/removed between two bodies; "" when nothing visible changed.
 
-    Line moves and blame age are ignored."""
+    Line moves, blame age and CI run links are ignored."""
     def items(body):
-        return {LINE_NO.sub(r"\1`", AGE.sub("", ln)): ln for ln in (body or "").splitlines() if ln.startswith("- [")}
+        return {LINE_NO.sub(r"\1`", RUN_LINK.sub("", AGE.sub("", ln))): ln
+                for ln in (body or "").splitlines() if ln.startswith("- [")}
 
     old, new = items(old_body), items(new_body)
     added = [new[k] for k in new if k not in old]

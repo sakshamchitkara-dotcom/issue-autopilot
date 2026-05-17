@@ -131,3 +131,8 @@ def test_index_prefers_open_then_newest():
 def test_changelog_empty_when_only_lines_or_marker_moved():
     body = "- [P3] `a.py:1` TODO: x\n<!-- issue-autopilot fp=0123456789abcdef kind=todo -->"
     assert render.changelog(body, body.replace("a.py:1", "a.py:9").replace("todo -->", "todo sig=0123456789ab -->")) == ""
+
+
+def test_changelog_ignores_new_ci_run_links():
+    old = "- [P1] `ci.yml` Workflow 'x' is failing on main ([run](https://g/runs/1) @ abc1234)"
+    assert render.changelog(old, old.replace("runs/1", "runs/2").replace("abc1234", "def5678")) == ""
