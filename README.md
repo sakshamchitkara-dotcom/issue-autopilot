@@ -203,5 +203,5 @@ All HTTP in the tests goes through a fake `urlopen` route table (`tests/conftest
 
 - `advisory` via OSV.dev only checks exact pins. A range such as `>=2,<3` has no single version to look up. Dependabot alerts cover ranges and lockfiles.
 - `deps` skips npm `||` and hyphen ranges instead of guessing, and it doesn't read lockfiles.
-- CODEOWNERS matching uses `fnmatch`, where `*` also crosses `/`. Team owners (`@org/team`) can't be assigned, so they are skipped.
+- Team owners (`@org/team`) can't be assigned, so they are skipped.
 - The resolved/human close split depends on the `autopilot:resolved` label. Issues closed by v0.1 don't have it, so they count as closed by a human. If a human reopens and then closes a labelled issue, it still counts as an autopilot close.

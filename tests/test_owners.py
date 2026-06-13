@@ -1,6 +1,8 @@
 import os
 import subprocess
 
+import pytest
+
 from issue_autopilot import owners
 from issue_autopilot.github import GitHub
 from issue_autopilot.models import Issue, Signal
@@ -47,3 +49,22 @@ def test_blame_owner_resolved_through_api(tmp_path, http):
     assert owners.owner_for(root, issue("a.py"), []) is None  # no API, no noreply email
     rules = [("*.py", ["@py-owner"])]
     assert owners.owner_for(root, issue("a.py"), rules) == ("py-owner", "CODEOWNERS")
+
+
+@pytest.mark.parametrize("pattern,path,expected", [
+    ("*.js", "src/deep/a.js", True),
+    ("/docs/*", "docs/a.md", True),
+    ("/docs/*", "docs/sub/a.md", False),  # GitHub: dir/* covers direct children only
+    ("src/*.py", "src/a.py", True),
+    ("src/*.py", "src/pkg/a.py", False),  # * no longer crosses "/"
+    ("src/*.py", "lib/src/a.py", False),  # a middle slash anchors to the root
+    ("apps/", "x/apps/y/z.py", True),  # unanchored directory at any depth
+    ("/build/logs/", "build/logs/a/b.log", True),
+    ("docs/**/*.md", "docs/a/b/c.md", True),
+    ("docs/**/*.md", "docs/c.md", True),
+    ("**/logs", "deep/down/logs/x", True),
+    ("a?c.py", "abc.py", True),
+    ("a?c.py", "a/c.py", False),
+])
+def test_codeowners_glob_semantics(pattern, path, expected):
+    assert owners.matches(pattern, path) is expected
