@@ -36,16 +36,35 @@ def _bump(t: tuple[int, ...], idx: int) -> tuple[int, ...]:
     return t[:idx] + (t[idx] + 1,)
 
 
-def bounds(spec: str) -> tuple[tuple, tuple | None, bool, bool] | None:
-    """Parse a PEP 440 / npm / poetry spec into (floor, upper, upper_inclusive, exact).
+Range = tuple[tuple, "tuple | None", bool, bool]  # (floor, upper, upper_inclusive, exact)
+HYPHEN = re.compile(r"^\s*v?(\d[\w.]*)\s+-\s+v?(\d[\w.]*)\s*$")
 
-    Handles ==, ===, bare pins, wildcards (1.2.* / 1.x), >=, >, <, <=, ~=, ^ and ~, joined by
-    commas or spaces. Returns None when there is nothing usable (e.g. "||" alternatives).
+
+def bounds(spec: str) -> list[Range]:
+    """Parse a spec into one range per npm `||` alternative; [] when any part is unusable."""
+    ranges = [_range(alt) for alt in spec.split("||")]
+    return ranges if all(ranges) else []
+
+
+def _hyphen(spec: str) -> str:
+    """npm `1.2.3 - 2.3` -> `>=1.2.3 <2.4`; a full upper version is inclusive."""
+    m = HYPHEN.match(spec)
+    if not m:
+        return spec
+    lo, hi = m.group(1), m.group(2)
+    parts = [int(x) for x in re.findall(r"\d+", hi)]
+    if len(parts) >= 3:
+        return f">={lo} <={hi}"
+    return f">={lo} <{'.'.join(map(str, _bump(tuple(parts), len(parts) - 1)))}"
+
+
+def _range(spec: str) -> Range | None:
+    """Parse one PEP 440 / npm / poetry range into (floor, upper, upper_inclusive, exact).
+
+    Handles ==, ===, bare pins, wildcards (1.2.* / 1.x), >=, >, <, <=, ~=, ^, ~ and npm hyphen
+    ranges, joined by commas or spaces. Returns None when there is nothing usable.
     """
-    # ponytail: no support for npm "||" or hyphen ranges; those specs are skipped, not guessed.
-    if "||" in spec or " - " in spec:
-        return None
-    spec = re.sub(r"(===|==|~=|>=|<=|!=|<|>|\^|~|=)\s+", r"\1", spec.strip())
+    spec = re.sub(r"(===|==|~=|>=|<=|!=|<|>|\^|~|=)\s+", r"\1", _hyphen(spec).strip())
     floor, upper, inclusive, exact = None, None, False, False
     for clause in filter(None, re.split(r"[,\s]+", spec)):
         m = CLAUSE.match(clause)
@@ -84,11 +103,13 @@ def bounds(spec: str) -> tuple[tuple, tuple | None, bool, bool] | None:
 
 
 def behind(spec: str, latest: str) -> bool:
-    """True when `latest` is outside what `spec` allows (pins: newer than the pin)."""
-    b, new = bounds(spec), _pad(version_tuple(latest))
-    if not b or not version_tuple(latest):
-        return False
-    floor, upper, inclusive, exact = b
+    """True when `latest` is outside every range `spec` allows (pins: newer than the pin)."""
+    rs, new = bounds(spec), _pad(version_tuple(latest))
+    return bool(rs and version_tuple(latest)) and all(_outside(r, new) for r in rs)
+
+
+def _outside(r: Range, new: tuple[int, ...]) -> bool:
+    floor, upper, inclusive, exact = r
     if exact:
         return new > _pad(floor)
     if upper is None:
@@ -98,8 +119,8 @@ def behind(spec: str, latest: str) -> bool:
 
 def majors_behind(spec: str, latest: str) -> int:
     """How many major versions `latest` is ahead of the spec's floor (0 when unknown)."""
-    b, new = bounds(spec), version_tuple(latest)
-    return max(0, new[0] - b[0][0]) if b and new else 0
+    rs, new = bounds(spec), version_tuple(latest)
+    return max(0, new[0] - max(r[0][0] for r in rs)) if rs and new else 0
 
 
 def pypi_latest(name: str) -> str:
@@ -161,7 +182,7 @@ def manifest_deps(ctx: Context) -> list[tuple[str, str, str, str]]:
             wanted += [(rel, "npm", n, v) for n, v in parse_package_json(text)]
         elif base == "pyproject.toml":
             wanted += [(rel, "pypi", n, v) for n, v in parse_pyproject(text)]
-    return [w for w in wanted if bounds(w[3])]  # nothing to compare for "*", "||" etc.
+    return [w for w in wanted if bounds(w[3])]  # nothing to compare for "*", "latest" etc.
 
 
 def scan(ctx: Context) -> list[Signal] | None:

@@ -6,7 +6,7 @@ Turns signals already sitting in a repository into deduplicated GitHub issues. I
 |------------|---------------|----------------------------|
 | `todo`     | `TODO` / `FIXME` / `HACK` / `XXX` comments, with the `git blame` author and age | file |
 | `secret`   | Hardcoded credentials (AWS, GitHub, Slack, Anthropic and OpenAI keys, private keys, `password = "..."`). Output is always redacted. | file |
-| `deps`     | Specs in `requirements*.txt`, `pyproject.toml` (`[project]` and poetry) and `package.json` that don't allow the latest PyPI/npm release (`==`, `>=`/`<`, `~=`, `^`, `~`, `1.x`), with how many major versions they lag. Unbounded floors are reported once they are a major version or more behind. | manifest |
+| `deps`     | Specs in `requirements*.txt`, `pyproject.toml` (`[project]` and poetry) and `package.json` that don't allow the latest PyPI/npm release (`==`, `>=`/`<`, `~=`, `^`, `~`, `1.x`, npm `||` and `1.2 - 2.0`), with how many major versions they lag. Unbounded floors are reported once they are a major version or more behind. | manifest |
 | `advisory` | Known vulnerabilities: open Dependabot alerts when the token can read them, otherwise [OSV.dev](https://osv.dev) lookups for every exact pin | manifest |
 | `ci`       | Workflows whose latest run on the default branch failed, with an error excerpt from the failed job's log | workflow |
 | `stale-pr` | Open PRs with no activity for `--stale-days` (default 30) | repo |
@@ -202,6 +202,6 @@ All HTTP in the tests goes through a fake `urlopen` route table (`tests/conftest
 ## Known limits
 
 - `advisory` via OSV.dev only checks exact pins. A range such as `>=2,<3` has no single version to look up. Dependabot alerts cover ranges and lockfiles.
-- `deps` skips npm `||` and hyphen ranges instead of guessing, and it doesn't read lockfiles.
+- `deps` compares manifest specs only; it doesn't read lockfiles.
 - Team owners (`@org/team`) can't be assigned, so they are skipped.
 - The resolved/human close split depends on the `autopilot:resolved` label. Issues closed by v0.1 don't have it, so they count as closed by a human. If a human reopens and then closes a labelled issue, it still counts as an autopilot close.

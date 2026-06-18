@@ -19,7 +19,9 @@ def test_parsers():
     ("~=1.4", "1.9", False), ("~=1.4", "2.0", True), ("~=1.4.2", "1.5.0", True),
     ("^1.2.3", "1.9.0", False), ("^1.2.3", "2.0.0", True), ("^0.2.3", "0.3.0", True), ("^0.0.3", "0.0.4", True),
     ("~1.2.3", "1.2.9", False), ("~1.2.3", "1.3.0", True), ("~1", "1.9", False), ("~1", "2.0", True),
-    ("==1.2.*", "1.2.7", False), ("1.x", "2.0.0", True), ("^1 || ^2", "3.0.0", False), ("!=1.5", "2.0", False),
+    ("==1.2.*", "1.2.7", False), ("1.x", "2.0.0", True), ("^1 || ^2", "2.5.0", False), ("^1 || ^2", "3.0.0", True), ("1.2.3 - 2.3.4", "2.3.4", False),
+    ("1.2.3 - 2.3.4", "2.3.5", True), ("1 - 2", "2.9.9", False), ("1 - 2", "3.0.0", True), ("^1 || foo", "9.0", False),
+    ("!=1.5", "2.0", False),
 ])
 def test_range_semantics(spec, latest, expected):
     assert deps.behind(spec, latest) is expected
@@ -85,3 +87,8 @@ def test_majors_behind():
     assert deps.majors_behind("==1.1.4", "3.1.0") == 2
     assert deps.majors_behind("^0.4", "1.0.0") == 1
     assert deps.majors_behind("~=2.1", "2.9") == 0 and deps.majors_behind("||", "2") == 0
+
+
+def test_or_ranges_use_the_newest_alternative_for_lag():
+    assert deps.majors_behind("^1 || ^2", "4.0.0") == 2
+    assert len(deps.bounds("^1 || ^2")) == 2 and deps.bounds("^1 || whatever") == []
