@@ -23,7 +23,8 @@ class Context:
     warnings: list[str] = field(default_factory=list)
 
 
-def iter_text_files(root: str, exclude: list[str] | None = None) -> Iterator[tuple[str, str]]:
+def iter_text_files(root: str, exclude: list[str] | None = None,
+                    max_bytes: int = MAX_FILE_BYTES) -> Iterator[tuple[str, str]]:
     """Yield (relative_path, text) for tracked (or, outside git, all) text files.
 
     `exclude` holds fnmatch globs against the relative path, e.g. "tests/*".
@@ -45,7 +46,7 @@ def iter_text_files(root: str, exclude: list[str] | None = None) -> Iterator[tup
             continue
         full = os.path.join(root, rel)
         try:
-            if not os.path.isfile(full) or os.path.getsize(full) > MAX_FILE_BYTES:
+            if not os.path.isfile(full) or os.path.getsize(full) > max_bytes:
                 continue
             with open(full, "rb") as fh:
                 raw = fh.read()
