@@ -150,6 +150,8 @@ def test_human_close_is_respected_and_reopen_overrides(repo, http, capsys):
 
 def test_signal_back_after_autopilot_close_is_refiled(repo, http, capsys):
     base_routes(http, open_issues=[closed_issue_for(repo, "a.py", 3, labels=["autopilot:resolved"])])
+    http.add("GET", f"{API}/repos/o/r/issues/3/events?per_page=100", [
+        {"event": "labeled", "label": {"name": "autopilot:resolved"}}, {"event": "closed"}])
     run("file", repo, "--repo", "o/r", "--sources", "todo")
     out = capsys.readouterr().out
     assert "3 new" in out and "closed by a human #3" not in out
@@ -195,3 +197,13 @@ def test_line_shift_only_edits_silently(repo, http, capsys):
     http.add("POST", f"{API}/repos/o/r/issues", {"number": 8, "html_url": "u"})
     run("file", repo, "--repo", "o/r", "--sources", "todo", "--apply")
     assert [(m, u) for m, u, _ in writes(http) if "/issues/7" in u] == [("PATCH", f"{API}/repos/o/r/issues/7")]
+
+
+def test_human_reopen_then_close_of_resolved_issue_is_respected(repo, http, capsys):
+    base_routes(http, open_issues=[closed_issue_for(repo, "a.py", 3, labels=["autopilot:resolved"])])
+    http.add("GET", f"{API}/repos/o/r/issues/3/events?per_page=100", [
+        {"event": "labeled", "label": {"name": "autopilot:resolved"}}, {"event": "closed"},
+        {"event": "reopened"}, {"event": "closed"}])
+    run("file", repo, "--repo", "o/r", "--sources", "todo")
+    out = capsys.readouterr().out
+    assert "2 new" in out and "closed by a human #3; --reopen to override" in out

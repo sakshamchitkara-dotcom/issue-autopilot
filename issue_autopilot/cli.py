@@ -92,6 +92,23 @@ def existing_bot_issues(ctx: Context) -> dict[str, dict]:
         die(f"could not list issues on {ctx.repo}: {e}")
 
 
+def recheck_resolved_closes(ctx: Context, existing: dict[str, dict], issues: list[Issue]) -> None:
+    """A labelled close only counts as ours if nobody reopened the issue since; otherwise a human closed it.
+
+    Only live groups matter (they're the ones that could be refiled), so this costs one call per regression."""
+    for i in issues:
+        gi = existing.get(i.fingerprint)
+        if not gi or triage.is_open(gi) or triage.closed_by_human(gi):
+            continue
+        try:
+            events = ctx.gh.paginate(f"/repos/{ctx.repo}/issues/{gi['number']}/events")
+        except GitHubError as e:
+            ctx.warnings.append(f"could not read events of #{gi['number']} ({e}); treating it as resolved")
+            continue
+        if triage.reopened_since_resolved(events):
+            gi["labels"] = [lb for lb in gi.get("labels", []) if lb["name"] != triage.RESOLVED_LABEL]
+
+
 def indent(text: str, pad: str = "     ") -> str:
     return "\n".join(pad + ln for ln in text.splitlines())
 
@@ -124,6 +141,7 @@ def cmd_file(args) -> int:
         ctx, issues, _ = collect(args, tmp)
     login = require_write_access(ctx) if args.apply else None
     existing = existing_bot_issues(ctx)
+    recheck_resolved_closes(ctx, existing, issues)
     p = triage.plan(issues, existing, args.max_issues, reopen=args.reopen)
     client = None if args.no_llm else make_client()
     for issue in p.create + p.update + p.reopen:
@@ -287,7 +305,9 @@ def report_md(ctx: Context, issues: list[Issue], ran: list[str], existing: dict[
 def cmd_report(args) -> int:
     with tempfile.TemporaryDirectory() as tmp:
         ctx, issues, ran = collect(args, tmp)
-    md = report_md(ctx, issues, ran, existing_bot_issues(ctx))
+    existing = existing_bot_issues(ctx)
+    recheck_resolved_closes(ctx, existing, issues)
+    md = report_md(ctx, issues, ran, existing)
     if args.out:
         with open(args.out, "w") as fh:
             fh.write(md)
