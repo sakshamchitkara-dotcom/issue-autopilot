@@ -15,7 +15,7 @@ from . import owners, triage
 from .github import GitHub, GitHubError, get_token, parse_repo_slug, repo_from_checkout
 from .models import PRIORITIES, Issue
 from .render import changelog, no_pings, render
-from .sources import Context, run_sources
+from .sources import Context, _registry, run_sources
 from .summarize import make_client, polish
 
 DEFAULT_CAP = 10
@@ -57,9 +57,25 @@ def build_context(args, tmp: str) -> Context:
     return Context(path=path, repo=repo, gh=gh, options={"stale_days": args.stale_days, "exclude": args.exclude})
 
 
+def source_names(args) -> list[str] | None:
+    """Parse --sources, failing before any clone or API call on a typo."""
+    if not args.sources:
+        return None
+    names = [n.strip() for n in args.sources.split(",") if n.strip()]
+    known = list(_registry())
+    if bad := [n for n in names if n not in known]:
+        die(f"unknown source(s): {', '.join(bad)} (choose from {', '.join(known)})")
+    return names
+
+
+def check_cap(args) -> None:
+    if not 1 <= args.max_issues <= HARD_CAP:
+        die(f"--max-issues must be between 1 and {HARD_CAP}")
+
+
 def collect(args, tmp: str) -> tuple[Context, list[Issue], list[str]]:
+    names = source_names(args)
     ctx = build_context(args, tmp)
-    names = args.sources.split(",") if args.sources else None
     signals, ran = run_sources(ctx, names)
     for w in ctx.warnings:
         print(f"warning: {w}", file=sys.stderr)
@@ -135,8 +151,7 @@ def cmd_scan(args) -> int:
 
 
 def cmd_file(args) -> int:
-    if not 1 <= args.max_issues <= HARD_CAP:
-        die(f"--max-issues must be between 1 and {HARD_CAP}")
+    check_cap(args)
     with tempfile.TemporaryDirectory() as tmp:
         ctx, issues, _ = collect(args, tmp)
     login = require_write_access(ctx) if args.apply else None
@@ -240,6 +255,7 @@ def cmd_file(args) -> int:
 
 
 def cmd_close_resolved(args) -> int:
+    check_cap(args)
     with tempfile.TemporaryDirectory() as tmp:
         ctx, issues, ran = collect(args, tmp)
     if not (ctx.gh and ctx.repo):

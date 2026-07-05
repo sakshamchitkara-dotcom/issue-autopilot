@@ -207,3 +207,17 @@ def test_human_reopen_then_close_of_resolved_issue_is_respected(repo, http, caps
     run("file", repo, "--repo", "o/r", "--sources", "todo")
     out = capsys.readouterr().out
     assert "2 new" in out and "closed by a human #3; --reopen to override" in out
+
+
+def test_bad_sources_and_caps_fail_before_any_work(repo, http, capsys):
+    with pytest.raises(SystemExit):
+        run("scan", "octo/cat", "--sources", "todo, nope")  # would clone if not rejected first
+    assert "unknown source(s): nope" in capsys.readouterr().err and http.calls == []
+    with pytest.raises(SystemExit):
+        run("close-resolved", repo, "--repo", "o/r", "--max-issues", "0")
+    assert "--max-issues must be between 1 and 50" in capsys.readouterr().err
+
+
+def test_sources_list_tolerates_spaces(repo, http, capsys):
+    run("scan", repo, "--sources", "todo, secret")
+    assert "sources: todo, secret" in capsys.readouterr().out
