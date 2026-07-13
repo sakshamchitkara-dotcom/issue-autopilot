@@ -255,3 +255,24 @@ def test_clone_failure_is_reported(http, monkeypatch, capsys):
     with pytest.raises(SystemExit):
         run("scan", "octo/missing", "--sources", "todo")
     assert "could not clone octo/missing: not found" in capsys.readouterr().err
+
+
+def test_write_failures_are_reported_and_the_run_continues(repo, http, capsys):
+    old = render.render(triage.group([todos.Signal("todo", "a.py", "TODO: old", path="a.py", line=1)])[0])
+    base_routes(http, open_issues=[{"number": 7, "title": old.title, "body": old.body, "labels": []}])
+    http.add("PATCH", f"{API}/repos/o/r/issues/7", {"message": "Validation Failed"}, status=422)
+    http.add("POST", f"{API}/repos/o/r/issues", {"message": "was submitted too quickly"}, status=403)
+    assert run("file", repo, "--repo", "o/r", "--sources", "todo", "--apply") == 0
+    out, err = capsys.readouterr()
+    assert "failed to update #7: GitHub API 422" in err
+    assert err.count("failed to create") == 2  # both new groups attempted despite the first failure
+    assert "created 0, updated 0, reopened 0" in out
+
+
+def test_close_failure_is_reported(repo, http, capsys):
+    stale = render.render(triage.group([todos.Signal("todo", "gone.py", "TODO: x", path="gone.py", line=1)])[0])
+    base_routes(http, open_issues=[{"number": 2, "title": stale.title, "body": stale.body}])
+    http.add("GET", f"{API}/repos/o/r/issues/2", {"state": "open"})
+    http.add("POST", f"{API}/repos/o/r/issues/2/comments", {"message": "locked"}, status=403)
+    run("close-resolved", repo, "--repo", "o/r", "--sources", "todo", "--apply")
+    assert "failed to close #2: GitHub API 403" in capsys.readouterr().err
