@@ -89,8 +89,7 @@ def require_write_access(ctx: Context) -> str:
     if not ctx.repo:
         die("--apply needs a GitHub repo (pass owner/repo or --repo, or run inside a checkout with an origin)")
     try:
-        login = ctx.gh.whoami()
-        allowed = ctx.gh.can_push(ctx.repo)
+        login, allowed = ctx.gh.write_access(ctx.repo)
     except GitHubError as e:
         die(f"permission check failed: {e}")
     if not allowed:

@@ -63,3 +63,15 @@ def test_issue_listing_and_edits(http):
     gh.add_labels("o/r", 1, ["autopilot:resolved"])
     assert http.calls[1][2] == {"title": "t", "state": "open"}
     assert http.calls[2][2] == {"labels": ["autopilot:resolved"]}
+
+
+def test_write_access_for_users_and_installation_tokens(http):
+    http.add("GET", f"{API}/user", {"login": "me"})
+    http.add("GET", f"{API}/repos/o/r", {"permissions": {"push": True}})
+    assert GitHub("t").write_access("o/r") == ("me", True)
+
+    http.add("GET", f"{API}/user", {"message": "Resource not accessible by integration"}, status=403)
+    http.add("GET", f"{API}/installation/repositories?per_page=100",
+             {"total_count": 1, "repositories": [{"full_name": "O/R"}]})
+    assert GitHub("t").write_access("o/r") == ("installation token", True)
+    assert GitHub("t").write_access("psf/requests") == ("installation token", False)

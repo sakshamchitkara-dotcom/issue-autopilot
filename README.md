@@ -19,7 +19,7 @@ It uses only the standard library (plus `tomli` on Python 3.10), and the GitHub 
 The tool is built so it can't spam repositories:
 
 - **Dry run is the default.** `file` and `close-resolved` print what they would do. Nothing is written unless you pass `--apply`.
-- **Push access is required.** Before any write, `--apply` calls `GET /repos/{owner}/{repo}` and refuses to run unless the authenticated user has `push`, `maintain` or `admin` permission.
+- **Push access is required.** Before any write, `--apply` calls `GET /repos/{owner}/{repo}` and refuses to run unless the authenticated user has `push`, `maintain` or `admin` permission. Installation tokens (the Actions `GITHUB_TOKEN`, or a GitHub App token) have no user, so for them the repo must be in `GET /installation/repositories`.
 - **Per-run cap.** A run creates at most `--max-issues` issues (default 10, hard maximum 50). Anything over the cap is listed as deferred.
 - **Dedupe.** Every issue body ends with a hidden marker, `<!-- issue-autopilot fp=<16 hex> kind=<source> sig=<12 hex> -->`. The fingerprint is `sha256(kind, group)`, so it stays the same across runs.
 - **Edit, don't duplicate.** `sig` is a digest of the group's signals. It leaves out line numbers, blame ages and log text. If an open issue's `sig` no longer matches, `file` rewrites its title, body and priority label in place and comments with the signals that were added or removed. Labels added by a human are kept. Edits count against `--max-issues` separately from creates.
