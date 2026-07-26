@@ -12,6 +12,7 @@ RESOLVED_LABEL = "autopilot:resolved"  # added by close-resolved; a closed issue
 KIND_LABELS = {
     "todo": "tech-debt",
     "ci": "ci",
+    "actions": "ci",
     "deps": "dependencies",
     "stale-pr": "stale",
     "secret": "security",
