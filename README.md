@@ -10,6 +10,7 @@ Turns signals already sitting in a repository into deduplicated GitHub issues. I
 | `advisory` | Known vulnerabilities: open Dependabot alerts when the token can read them, otherwise [OSV.dev](https://osv.dev) lookups for every exact pin and every package in `package-lock.json`, `poetry.lock` and `uv.lock` | manifest |
 | `ci`       | Workflows whose latest run on the default branch failed, with an error excerpt from the failed job's log | workflow |
 | `actions`  | Workflow steps whose `uses: owner/repo@vN` tag is at least one major version behind the action's latest release (SHA and branch pins are skipped) | workflow |
+| `flaky`    | CI jobs that failed and then passed on the same commit (a re-run that went green, or two runs of one commit that disagree), at least twice in the last 500 completed runs | workflow |
 | `stale-pr` | Open PRs with no activity for `--stale-days` (default 30) | repo |
 
 It uses only the standard library (plus `tomli` on Python 3.10), and the GitHub REST client is built on `urllib`. The Claude summarizer is optional (`pip install .[llm]`).

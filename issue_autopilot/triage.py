@@ -13,6 +13,7 @@ KIND_LABELS = {
     "todo": "tech-debt",
     "ci": "ci",
     "actions": "ci",
+    "flaky": "flaky-test",
     "deps": "dependencies",
     "stale-pr": "stale",
     "secret": "security",
