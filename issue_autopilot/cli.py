@@ -178,27 +178,41 @@ def cmd_file(args) -> int:
             return []
         return [o[0]]
 
+    say = (lambda *a, **k: None) if args.json else print
+    records: list[dict] = []
+
+    def record(action: str, issue: Issue, gi: dict | None = None, **extra) -> None:
+        o = owner.get(issue.fingerprint)
+        records.append({"action": action, "number": (gi or {}).get("number"), "title": issue.title or
+                        (gi or {}).get("title"), "kind": issue.kind, "group": issue.group,
+                        "priority": issue.priority, "fingerprint": issue.fingerprint,
+                        "owner": o[0] if o else None, **extra})
+
     mode = "apply" if args.apply else "dry-run"
     where = ctx.repo or "(no GitHub repo)"
-    print(f"[{mode}] {len(issues)} issue group(s): {len(p.create)} new, {len(p.update)} changed, "
+    say(f"[{mode}] {len(issues)} issue group(s): {len(p.create)} new, {len(p.update)} changed, "
           f"{len(p.unchanged)} already open, {len(p.suppressed) + len(p.reopen)} closed by a human, "
           f"{len(p.over)} over cap ({args.max_issues}) -> {where}")
     for i in p.unchanged:
         gi = existing[i.fingerprint]
-        print(f"  = skip (already open #{gi['number']}): {gi['title']}")
+        record("unchanged", i, gi)
+        say(f"  = skip (already open #{gi['number']}): {gi['title']}")
     for i in p.suppressed:
         gi = existing[i.fingerprint]
-        print(f"  = skip (closed by a human #{gi['number']}; --reopen to override): {gi['title']}")
+        record("suppressed", i, gi)
+        say(f"  = skip (closed by a human #{gi['number']}; --reopen to override): {gi['title']}")
     for i in p.over:
-        print(f"  ~ deferred (cap reached): {i.kind}: {i.group}")
+        record("deferred", i)
+        say(f"  ~ deferred (cap reached): {i.kind}: {i.group}")
 
     edited = 0
     for issue in p.update:
         gi = existing[issue.fingerprint]
         note = changelog(gi.get("body"), issue.body)
         if not args.apply:
-            print(f"\n  ~ [would update] #{gi['number']}: {issue.title}{owner_note(issue)}")
-            print("    changelog comment:\n" + indent(note) if note else "    (line numbers/format only: edit without comment)")
+            record("would update", issue, gi, changelog=note)
+            say(f"\n  ~ [would update] #{gi['number']}: {issue.title}{owner_note(issue)}")
+            say("    changelog comment:\n" + indent(note) if note else "    (line numbers/format only: edit without comment)")
             continue
         # Keep labels a human added; only swap our own priority label.
         keep = [lb["name"] for lb in gi.get("labels", []) if lb["name"] not in PRIORITIES]
@@ -210,15 +224,18 @@ def cmd_file(args) -> int:
                 ctx.gh.comment(ctx.repo, gi["number"], note)
         except GitHubError as e:
             print(f"  ! failed to update #{gi['number']}: {e}", file=sys.stderr)
+            record("failed update", issue, gi, error=str(e))
             continue
         edited += 1
-        print(f"  ~ updated #{gi['number']}: {issue.title}{owner_note(issue) if fields else ''}")
+        record("updated", issue, gi, changelog=note)
+        say(f"  ~ updated #{gi['number']}: {issue.title}{owner_note(issue) if fields else ''}")
 
     reopened = 0
     for issue in p.reopen:
         gi = existing[issue.fingerprint]
         if not args.apply:
-            print(f"  ^ [would reopen] #{gi['number']}: {issue.title}{owner_note(issue)}")
+            record("would reopen", issue, gi)
+            say(f"  ^ [would reopen] #{gi['number']}: {issue.title}{owner_note(issue)}")
             continue
         fields = {"assignees": a} if (a := assignees(issue, gi)) else {}
         try:
@@ -227,29 +244,38 @@ def cmd_file(args) -> int:
                                                     "are still present.\n\n" + changelog(gi.get("body"), issue.body)).strip())
         except GitHubError as e:
             print(f"  ! failed to reopen #{gi['number']}: {e}", file=sys.stderr)
+            record("failed reopen", issue, gi, error=str(e))
             continue
         reopened += 1
-        print(f"  ^ reopened #{gi['number']}: {issue.title}")
+        record("reopened", issue, gi)
+        say(f"  ^ reopened #{gi['number']}: {issue.title}")
 
     created = 0
     for n, issue in enumerate(p.create, 1):
         if not args.apply:
-            print(f"\n  {n}. [would create] {issue.title}")
-            print(f"     labels: {', '.join(issue.labels)}   fp={issue.fingerprint}{owner_note(issue)}")
-            print(indent(issue.body))
+            record("would create", issue, labels=issue.labels, body=issue.body)
+            say(f"\n  {n}. [would create] {issue.title}")
+            say(f"     labels: {', '.join(issue.labels)}   fp={issue.fingerprint}{owner_note(issue)}")
+            say(indent(issue.body))
             continue
         try:
             gi = ctx.gh.create_issue(ctx.repo, issue.title, issue.body, issue.labels, assignees(issue))
         except GitHubError as e:
             print(f"  ! failed to create '{issue.title}': {e}", file=sys.stderr)
+            record("failed create", issue, error=str(e))
             continue
         created += 1
-        print(f"  + created #{gi['number']}: {issue.title}\n    {gi['html_url']}"
+        record("created", issue, gi, url=gi.get("html_url"), labels=issue.labels)
+        say(f"  + created #{gi['number']}: {issue.title}\n    {gi['html_url']}"
               + (owner_note(issue) if assignees(issue) else ""))
-    if args.apply:
-        print(f"\ncreated {created}, updated {edited}, reopened {reopened} issue(s) on {ctx.repo} as {login}")
+    if args.json:
+        print(json.dumps({"mode": mode, "repo": ctx.repo, "login": login, "groups": len(issues),
+                          "created": created, "updated": edited, "reopened": reopened,
+                          "warnings": ctx.warnings, "issues": records}, indent=2))
+    elif args.apply:
+        say(f"\ncreated {created}, updated {edited}, reopened {reopened} issue(s) on {ctx.repo} as {login}")
     else:
-        print("\n(dry run: nothing was written; re-run with --apply to create/update these issues)")
+        say("\n(dry run: nothing was written; re-run with --apply to create/update these issues)")
     return 0
 
 
@@ -263,57 +289,83 @@ def cmd_close_resolved(args) -> int:
         require_write_access(ctx)
     existing = existing_bot_issues(ctx)
     gone = triage.resolved(existing, issues, ran)[: args.max_issues]
+    say = (lambda *a, **k: None) if args.json else print
+    records: list[dict] = []
     mode = "apply" if args.apply else "dry-run"
     n_open = sum(map(triage.is_open, existing.values()))
-    print(f"[{mode}] {n_open} open autopilot issue(s) on {ctx.repo}; {len(gone)} resolved "
+    say(f"[{mode}] {n_open} open autopilot issue(s) on {ctx.repo}; {len(gone)} resolved "
           f"(checked sources: {', '.join(ran)})")
     for gi in gone:
+        rec = {"number": gi["number"], "title": gi["title"]}
+        records.append(rec)
         if not args.apply:
-            print(f"  - would close #{gi['number']}: {gi['title']}")
+            rec["action"] = "would close"
+            say(f"  - would close #{gi['number']}: {gi['title']}")
             continue
         try:
             # The issue list can lag a few seconds behind; re-check so re-runs never double-comment.
             if ctx.gh.get(f"/repos/{ctx.repo}/issues/{gi['number']}")["state"] != "open":
-                print(f"  = already closed #{gi['number']}")
+                rec["action"] = "already closed"
+                say(f"  = already closed #{gi['number']}")
                 continue
             ctx.gh.comment(ctx.repo, gi["number"], "issue-autopilot: the signals behind this issue are no longer "
                                                   "detected, closing as resolved.")
             # The label is how `file` tells our closes from a human's; add it before closing.
             ctx.gh.add_labels(ctx.repo, gi["number"], [triage.RESOLVED_LABEL])
             ctx.gh.close_issue(ctx.repo, gi["number"])
-            print(f"  x closed #{gi['number']}: {gi['title']}")
+            rec["action"] = "closed"
+            say(f"  x closed #{gi['number']}: {gi['title']}")
         except GitHubError as e:
             print(f"  ! failed to close #{gi['number']}: {e}", file=sys.stderr)
+            rec.update(action="failed", error=str(e))
+    if args.json:
+        print(json.dumps({"mode": mode, "repo": ctx.repo, "open": n_open, "checked_sources": ran,
+                          "warnings": ctx.warnings, "resolved": records}, indent=2))
     return 0
 
 
-def report_md(ctx: Context, issues: list[Issue], ran: list[str], existing: dict[str, dict]) -> str:
+def report_data(ctx: Context, issues: list[Issue], ran: list[str], existing: dict[str, dict]) -> dict:
     p = triage.plan(issues, existing, cap=max(len(issues), 1))
     status = {id(i): s for s, group in (("new", p.create), ("changed", p.update), ("up to date", p.unchanged),
                                         ("closed by a human", p.suppressed)) for i in group}
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    out = [f"# issue-autopilot report: {ctx.repo or ctx.path}", "",
-           f"_Generated {now}. Sources: {', '.join(ran) or 'none'}._", "",
+    groups = []
+    for i in issues:
+        gi = existing.get(i.fingerprint)
+        groups.append({"priority": i.priority, "kind": i.kind, "group": i.group, "signals": len(i.signals),
+                       "issue": gi["number"] if gi and status[id(i)] != "new" else None,
+                       "status": status[id(i)], "fingerprint": i.fingerprint})
+    return {
+        "repo": ctx.repo or ctx.path,
+        "generated": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+        "sources": ran,
+        "priorities": {pri: {"groups": sum(g["priority"] == pri for g in groups),
+                             "signals": sum(g["signals"] for g in groups if g["priority"] == pri)}
+                       for pri in PRIORITIES},
+        "groups": groups,
+        "resolved": [{"number": gi["number"], "title": gi["title"]} for gi in triage.resolved(existing, issues, ran)],
+        "warnings": ctx.warnings,
+    }
+
+
+def report_md(data: dict) -> str:
+    out = [f"# issue-autopilot report: {data['repo']}", "",
+           f"_Generated {data['generated']}. Sources: {', '.join(data['sources']) or 'none'}._", "",
            "| Priority | Groups | Signals |", "|---|---:|---:|"]
-    for pri in PRIORITIES:
-        grp = [i for i in issues if i.priority == pri]
-        out.append(f"| {pri} | {len(grp)} | {sum(len(i.signals) for i in grp)} |")
+    out += [f"| {pri} | {c['groups']} | {c['signals']} |" for pri, c in data["priorities"].items()]
     out += ["", "## Groups", ""]
-    if issues:
+    if data["groups"]:
         out += ["| Priority | Kind | Group | Signals | Issue | Status |", "|---|---|---|---:|---|---|"]
-        for i in issues:
-            gi = existing.get(i.fingerprint)
-            ref = f"#{gi['number']}" if gi and status[id(i)] != "new" else "-"
-            group = i.group.replace("|", "\\|")
-            out.append(f"| {i.priority} | {i.kind} | `{group}` | {len(i.signals)} | {ref} | {status[id(i)]} |")
+        for g in data["groups"]:
+            ref = f"#{g['issue']}" if g["issue"] else "-"
+            group = g["group"].replace("|", "\\|")
+            out.append(f"| {g['priority']} | {g['kind']} | `{group}` | {g['signals']} | {ref} | {g['status']} |")
     else:
         out.append("No signals found.")
-    gone = triage.resolved(existing, issues, ran)
-    if gone:
+    if data["resolved"]:
         out += ["", "## Resolved (open issues whose signals are gone)", ""]
-        out += [f"- #{gi['number']} {gi['title']}" for gi in gone]
-    if ctx.warnings:
-        out += ["", "## Warnings", ""] + [f"- {w}" for w in ctx.warnings]
+        out += [f"- #{r['number']} {r['title']}" for r in data["resolved"]]
+    if data["warnings"]:
+        out += ["", "## Warnings", ""] + [f"- {w}" for w in data["warnings"]]
     return no_pings("\n".join(out)) + "\n"
 
 
@@ -322,13 +374,14 @@ def cmd_report(args) -> int:
         ctx, issues, ran = collect(args, tmp)
     existing = existing_bot_issues(ctx)
     recheck_resolved_closes(ctx, existing, issues)
-    md = report_md(ctx, issues, ran, existing)
+    data = report_data(ctx, issues, ran, existing)
+    text = json.dumps(data, indent=2) + "\n" if args.json else report_md(data)
     if args.out:
         with open(args.out, "w") as fh:
-            fh.write(md)
+            fh.write(text)
         print(f"wrote {args.out}", file=sys.stderr)
     else:
-        print(md, end="")
+        print(text, end="")
     return 0
 
 
@@ -371,17 +424,20 @@ def build_parser() -> argparse.ArgumentParser:
                    help="assign each issue to its CODEOWNERS / git blame owner (only written with --apply)")
     f.add_argument("--reopen", action="store_true",
                    help="reopen autopilot issues a human closed if their signals are still present")
+    f.add_argument("--json", action="store_true", help="print the plan / results as JSON")
     f.set_defaults(func=cmd_file)
 
     r = sub.add_parser("report", help="markdown summary of signals and their issues (read-only)")
     common(r, ".")
     r.add_argument("--out", metavar="FILE", help="write the report here instead of stdout")
+    r.add_argument("--json", action="store_true", help="JSON instead of Markdown")
     r.set_defaults(func=cmd_report)
 
     c = sub.add_parser("close-resolved", help="close autopilot issues whose signals are gone (dry-run unless --apply)")
     common(c, ".")
     c.add_argument("--apply", action="store_true", help="actually close issues")
     c.add_argument("--max-issues", type=int, default=DEFAULT_CAP, help="max issues to close per run")
+    c.add_argument("--json", action="store_true", help="print the results as JSON")
     c.set_defaults(func=cmd_close_resolved)
     d = sub.add_parser("doctor", help="check token, repo access and source prerequisites (read-only)")
     d.add_argument("target", nargs="?", default=".", help="local path or owner/repo (default: .)")
