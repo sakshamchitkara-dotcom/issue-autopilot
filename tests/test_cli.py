@@ -25,6 +25,7 @@ def base_routes(http, push=True, open_issues=()):
     http.add("GET", f"{API}/user", {"login": "me"})
     http.add("GET", f"{API}/repos/o/r", {"permissions": {"push": push}, "default_branch": "main"})
     http.add("GET", ISSUES, list(open_issues))
+    http.add("GET", f"{API}/repos/o/r/issues/", {"message": "Not Found"}, status=404)  # nothing past the list
 
 
 def writes(http):
@@ -306,6 +307,7 @@ def test_apply_with_installation_token_checks_installation_repos(repo, http, cap
     http.add("GET", f"{API}/user", {"message": "Resource not accessible by integration"}, status=403)
     http.add("GET", f"{API}/installation/repositories?per_page=100", {"repositories": [{"full_name": "o/r"}]})
     http.add("GET", ISSUES, [])
+    http.add("GET", f"{API}/repos/o/r/issues/1", {"message": "Not Found"}, status=404)
     http.add("POST", f"{API}/repos/o/r/issues", {"number": 1, "html_url": "u"})
     http.add("GET", f"{API}/repos/o/r/commits/", {"author": None})
     run("file", repo, "--repo", "o/r", "--sources", "todo", "--apply", "--max-issues", "1")
@@ -316,3 +318,16 @@ def test_apply_with_installation_token_checks_installation_repos(repo, http, cap
         run("file", repo, "--repo", "other/repo", "--sources", "todo", "--apply")
     assert "installation token has no push access to other/repo" in capsys.readouterr().err
     assert writes(http) == []
+
+
+def test_issue_filed_seconds_ago_is_seen_despite_listing_lag(repo, http, capsys):
+    """Real bug from the v0.3 sandbox run: two back-to-back --apply runs filed #8 and a duplicate #9."""
+    sigs = todos.scan(Context(path=repo, repo=None, gh=None))
+    fresh = render.render([i for i in triage.group(sigs) if i.group == "a.py"][0])
+    base_routes(http, open_issues=[{"number": 5, "title": "human", "body": ""}])
+    http.add("GET", f"{API}/repos/o/r/issues/6", {"number": 6, "pull_request": {}})  # a PR shares the numbering
+    http.add("GET", f"{API}/repos/o/r/issues/7", {"message": "gone"}, status=410)  # deleted issue
+    http.add("GET", f"{API}/repos/o/r/issues/8", {"number": 8, "title": fresh.title, "body": fresh.body})
+    run("file", repo, "--repo", "o/r", "--sources", "todo")
+    out = capsys.readouterr().out
+    assert "skip (already open #8)" in out and "2 new" in out
