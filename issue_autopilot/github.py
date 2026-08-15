@@ -9,8 +9,10 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from . import __version__
+
 API = "https://api.github.com"
-USER_AGENT = "issue-autopilot/0.2"
+USER_AGENT = f"issue-autopilot/{__version__}"
 
 
 class GitHubError(RuntimeError):

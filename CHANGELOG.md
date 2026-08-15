@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.3.0 - 2026-09-25
+
+### Added
+- **`autopilot doctor`.** It runs read-only checks on git, the checkout, the repo, the token and its identity, push access, whether issues, Dependabot alerts, Actions runs and PRs are readable, CODEOWNERS team owners, and the summarizer. Exits 1 on failures. The scheduled workflow runs it first.
+- **`actions` source.** Workflow `uses: owner/repo@vN` steps that are one or more major versions behind the action's latest release (P2 when two or more). SHA and branch pins are skipped.
+- **`flaky` source.** Jobs that failed and then passed on the same commit, from re-runs or from disagreeing runs, at least twice in the last 500 completed runs.
+- **`--json` on `file`, `close-resolved` and `report`**, joining `scan` and `doctor`.
+- **Lockfiles in `advisory`.** The OSV.dev fallback now checks every package in `package-lock.json`, `poetry.lock` and `uv.lock`, so range specs are covered.
+- **npm `||` and hyphen ranges** in `deps`.
+
+### Fixed
+- `--apply` from GitHub Actions: the built-in `GITHUB_TOKEN` (and any GitHub App installation token) was refused, because it can't read `/user`. Write access for installation tokens is now checked against `/installation/repositories`.
+- Back-to-back `file --apply` runs could file a duplicate while the issue listing lagged behind. Issue numbers past the listing are now fetched directly.
+- CODEOWNERS globs follow GitHub's rules: `*` doesn't cross `/`, `**` does, a middle slash anchors the pattern, and `dir/*` covers only direct children.
+- An `autopilot:resolved` issue that a human reopened and closed again is now treated as closed by a human, based on its events.
+- Unknown `--sources` fail before cloning or scanning, spaces in the list are accepted, and `close-resolved --max-issues` is bounded to 1..50.
+
+### Changed
+- The workflows use `actions/checkout@v7` and `actions/setup-python@v7`.
+- The User-Agent now carries the package version.
+
 ## 0.2.0 - 2026-09-25
 
 ### Added
