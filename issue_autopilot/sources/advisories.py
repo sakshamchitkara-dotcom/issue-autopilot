@@ -85,7 +85,43 @@ def _toml_lock(text: str) -> list[tuple[str, str]]:
     return out
 
 
-LOCKFILES = {"package-lock.json": ("npm", _npm_lock), "poetry.lock": ("pypi", _toml_lock),
+def _yarn_lock(text: str) -> list[tuple[str, str]]:
+    """(name, version) from yarn.lock, classic (`version "1.2.3"`) and berry (`version: 1.2.3`).
+
+    Workspace, link, portal, file and patch entries are skipped: they aren't registry releases."""
+    out, name = [], None
+    for line in text.splitlines():
+        if line and not line[0].isspace() and line.rstrip().endswith(":") and not line.startswith("#"):
+            spec = line.rstrip()[:-1].split(",")[0].strip().strip('"')
+            at = spec.find("@", 1)
+            local = re.search(r"@(?:workspace|link|portal|file|patch):", spec)
+            name = spec[:at] if at > 0 and not local else None
+        elif name and (m := re.match(r'\s+version:?\s+"?([^"\s]+)"?\s*$', line)):
+            out.append((name, m.group(1)))
+            name = None
+    return out
+
+
+def _pnpm_lock(text: str) -> list[tuple[str, str]]:
+    """(name, version) from the `packages:` keys of pnpm-lock.yaml: v5 `/name/1.2.3_peer`,
+    v6 `/name@1.2.3(peer)`, v9 `name@1.2.3`. Non-registry versions (link:, file:, git) are skipped."""
+    out, inside = [], False
+    for line in text.splitlines():
+        if line and not line[0].isspace():
+            inside = line.rstrip() == "packages:"
+        elif inside and (m := re.match(r"^  ([^\s].*):\s*$", line)):
+            key = m.group(1).strip("'\"").lstrip("/").split("(")[0]
+            if v5 := re.match(r"^((?:@[^/]+/)?[^/@]+)/(\d[^/_]*)", key):  # v5: peers follow a `_`
+                name, version = v5.groups()
+            else:
+                name, _, version = key.rpartition("@")
+            if name and re.match(r"\d", version):
+                out.append((name, version))
+    return out
+
+
+LOCKFILES = {"package-lock.json": ("npm", _npm_lock), "yarn.lock": ("npm", _yarn_lock),
+             "pnpm-lock.yaml": ("npm", _pnpm_lock), "poetry.lock": ("pypi", _toml_lock),
              "uv.lock": ("pypi", _toml_lock)}
 
 
