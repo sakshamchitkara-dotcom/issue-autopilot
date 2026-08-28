@@ -143,7 +143,7 @@ def test_huge_group_is_truncated_but_keeps_its_marker():
     sigs = [Signal("ci", "wf.yml", "Workflow 'x' is failing on main", detail="E" * 70_000)]
     sigs += [Signal("ci", "wf.yml", f"extra {n}") for n in range(render.MAX_ITEMS + 5)]
     issue = render.render(triage.group(sigs)[0])
-    assert len(issue.body) <= render.MAX_BODY and "…and 5 more" in issue.body
+    assert len(issue.body) <= render.MAX_BODY and "…and 6 more" in issue.body
     assert triage.parse_marker(issue.body) == (issue.fingerprint, "ci")
     assert issue.title == "CI failing: workflow 'x' is failing on main"
 
