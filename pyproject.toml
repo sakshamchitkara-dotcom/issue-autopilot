@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "issue-autopilot"
-version = "0.3.0"
+version = "0.4.0"
 description = "Turn repo signals (TODOs, failing or flaky CI, outdated deps and actions, advisories, stale PRs, leaked secrets) into deduped GitHub issues."
 readme = "README.md"
 requires-python = ">=3.10"
