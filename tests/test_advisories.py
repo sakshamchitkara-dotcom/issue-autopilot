@@ -180,3 +180,12 @@ def test_yarn_lock_aliases_resolve_to_the_real_package_and_git_deps_are_skipped(
     assert advisories._yarn_lock(YARN_ALIASES_CLASSIC) == [("eslint", "7.32.0"), ("string-width", "4.2.3")]
     assert advisories._yarn_lock(YARN_ALIASES_BERRY) == [("@slorber/react-helmet-async", "1.3.0"),
                                                          ("node-gyp", "10.0.1")]
+
+
+def test_pnpm_lock_with_a_package_manager_document():
+    # pnpm 10 (vuejs/core, vitejs/vite) writes a first YAML document for the pinned pnpm binary itself.
+    text = ("---\nlockfileVersion: '9.0'\nimporters:\n  .:\n    packageManagerDependencies: {}\npackages:\n"
+            "  '@pnpm/exe@10.2.0':\n    resolution: {integrity: a}\n\n---\nlockfileVersion: '9.0'\n"
+            "importers:\n  packages/vue:\n    dependencies:\n      '@vue/shared':\n        version: link:../shared\n"
+            "packages:\n  lodash@4.17.20:\n    resolution: {integrity: b}\nsnapshots:\n  lodash@4.17.20: {}\n")
+    assert advisories._pnpm_lock(text) == [("@pnpm/exe", "10.2.0"), ("lodash", "4.17.20")]
