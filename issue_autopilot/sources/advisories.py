@@ -85,17 +85,31 @@ def _toml_lock(text: str) -> list[tuple[str, str]]:
     return out
 
 
+def _yarn_name(spec: str) -> str | None:
+    """Registry package behind a yarn.lock key, or None when it isn't a registry release.
+
+    `alias@npm:real@^1` installs `real`, not `alias`. Git, GitHub shorthand (`user/repo`), tarball URLs and
+    workspace, link, portal, file and patch protocols are skipped."""
+    at = spec.find("@", 1)
+    if at < 0:
+        return None
+    name, rng = spec[:at], spec[at + 1:]
+    if rng.startswith("npm:"):
+        rng = rng[4:]
+        if (i := rng.find("@", 1)) > 0:
+            name, rng = rng[:i], rng[i + 1:]
+    return None if re.match(r"[a-z+]+:", rng) or "/" in rng else name
+
+
 def _yarn_lock(text: str) -> list[tuple[str, str]]:
     """(name, version) from yarn.lock, classic (`version "1.2.3"`) and berry (`version: 1.2.3`).
 
-    Workspace, link, portal, file and patch entries are skipped: they aren't registry releases."""
+    Entries that aren't registry releases are skipped (see `_yarn_name`)."""
     out, name = [], None
     for line in text.splitlines():
         if line and not line[0].isspace() and line.rstrip().endswith(":") and not line.startswith("#"):
             spec = line.rstrip()[:-1].split(",")[0].strip().strip('"')
-            at = spec.find("@", 1)
-            local = re.search(r"@(?:workspace|link|portal|file|patch):", spec)
-            name = spec[:at] if at > 0 and not local else None
+            name = _yarn_name(spec)
         elif name and (m := re.match(r'\s+version:?\s+"?([^"\s]+)"?\s*$', line)):
             out.append((name, m.group(1)))
             name = None

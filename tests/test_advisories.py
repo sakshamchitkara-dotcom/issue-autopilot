@@ -144,3 +144,39 @@ def test_yarn_and_pnpm_lockfiles_are_queried(tmp_path, http):
     queries = [c for c in http.calls if c[0] == "POST"][0][2]["queries"]
     assert {(q["package"]["name"], q["version"], q["package"]["ecosystem"]) for q in queries} == {
         ("minimist", "1.2.5", "npm"), ("@babel/code-frame", "7.12.13", "npm"), ("lodash", "4.17.20", "npm")}
+
+
+# Trimmed from facebook/react (classic) and yarnpkg/berry (berry) lockfiles: aliases install the real
+# package, and git dependencies aren't registry releases.
+YARN_ALIASES_CLASSIC = '''\
+"eslint-v7@npm:eslint@^7.7.0", eslint@^7.7.0:
+  version "7.32.0"
+
+"string-width-cjs@npm:string-width@^4.2.0", string-width@^4.1.0:
+  version "4.2.3"
+
+pem@dexus/pem:
+  version "1.14.5"
+
+tiny@https://example.com/tiny-1.0.0.tgz:
+  version "1.0.0"
+'''
+YARN_ALIASES_BERRY = '''\
+"react-helmet-async@npm:@slorber/react-helmet-async@*, react-helmet-async@npm:@slorber/react-helmet-async@1.3.0":
+  version: 1.3.0
+  resolution: "@slorber/react-helmet-async@npm:1.3.0"
+
+"node-gyp@npm:latest":
+  version: 10.0.1
+  resolution: "node-gyp@npm:10.0.1"
+
+"pem@https://github.com/dexus/pem.git#commit=71dae33":
+  version: 1.14.5
+  resolution: "pem@https://github.com/dexus/pem.git#commit=71dae33"
+'''
+
+
+def test_yarn_lock_aliases_resolve_to_the_real_package_and_git_deps_are_skipped():
+    assert advisories._yarn_lock(YARN_ALIASES_CLASSIC) == [("eslint", "7.32.0"), ("string-width", "4.2.3")]
+    assert advisories._yarn_lock(YARN_ALIASES_BERRY) == [("@slorber/react-helmet-async", "1.3.0"),
+                                                         ("node-gyp", "10.0.1")]
