@@ -23,9 +23,8 @@ class Context:
     warnings: list[str] = field(default_factory=list)
 
 
-def iter_text_files(root: str, exclude: list[str] | None = None,
-                    max_bytes: int = MAX_FILE_BYTES) -> Iterator[tuple[str, str]]:
-    """Yield (relative_path, text) for tracked (or, outside git, all) text files.
+def list_files(root: str, exclude: list[str] | None = None) -> list[str]:
+    """Sorted relative paths of tracked (or, outside git, all) files, minus vendored dirs and `exclude`.
 
     `exclude` holds fnmatch globs against the relative path, e.g. "tests/*".
     """
@@ -39,11 +38,14 @@ def iter_text_files(root: str, exclude: list[str] | None = None,
         for d, dirs, files in os.walk(root):
             dirs[:] = [x for x in dirs if x not in SKIP_DIRS]
             rels += [os.path.relpath(os.path.join(d, f), root) for f in files]
-    for rel in sorted(rels):
-        if set(rel.split(os.sep)[:-1]) & SKIP_DIRS:
-            continue
-        if exclude and any(fnmatch.fnmatch(rel, pat) for pat in exclude):
-            continue
+    return [rel for rel in sorted(rels) if not set(rel.split(os.sep)[:-1]) & SKIP_DIRS
+            and not (exclude and any(fnmatch.fnmatch(rel, pat) for pat in exclude))]
+
+
+def iter_text_files(root: str, exclude: list[str] | None = None,
+                    max_bytes: int = MAX_FILE_BYTES) -> Iterator[tuple[str, str]]:
+    """Yield (relative_path, text) for the text files among `list_files`."""
+    for rel in list_files(root, exclude):
         full = os.path.join(root, rel)
         try:
             if not os.path.isfile(full) or os.path.getsize(full) > max_bytes:
@@ -58,7 +60,7 @@ def iter_text_files(root: str, exclude: list[str] | None = None,
 
 
 def _registry() -> dict[str, Callable[[Context], list[Signal]]]:
-    from . import action_versions, actions, advisories, deps, flaky, prs, secrets, todos
+    from . import action_versions, actions, advisories, deps, flaky, hygiene, prs, secrets, todos
 
     return {
         "todo": todos.scan,
@@ -69,6 +71,7 @@ def _registry() -> dict[str, Callable[[Context], list[Signal]]]:
         "actions": action_versions.scan,
         "flaky": flaky.scan,
         "stale-pr": prs.scan,
+        "hygiene": hygiene.scan,
     }
 
 
