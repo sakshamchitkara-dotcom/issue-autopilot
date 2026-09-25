@@ -1,3 +1,5 @@
+import pytest
+
 from issue_autopilot.github import GitHub
 from issue_autopilot.sources import Context, advisories
 
@@ -88,3 +90,57 @@ def test_lockfiles_cover_ranges_and_dedupe(tmp_path, http):
 def test_npm_lock_v1():
     text = '{"lockfileVersion": 1, "dependencies": {"a": {"version": "1.0.0", "dependencies": {"b": {"version": "2.0.0"}}}}}'
     assert sorted(advisories._npm_lock(text)) == [("a", "1.0.0"), ("b", "2.0.0")]
+
+
+YARN_CLASSIC = """# yarn lockfile v1
+
+
+"@babel/code-frame@^7.0.0", "@babel/code-frame@^7.10.4":
+  version "7.12.13"
+  resolved "https://registry.yarnpkg.com/@babel/code-frame/-/code-frame-7.12.13.tgz"
+  dependencies:
+    "@babel/highlight" "^7.12.13"
+
+lodash@^4.17.0:
+  version "4.17.20"
+"""
+YARN_BERRY = """__metadata:
+  version: 6
+
+"app@workspace:.":
+  version: 0.0.0-use.local
+  resolution: "app@workspace:."
+
+"minimist@npm:^1.2.0, minimist@npm:^1.2.5":
+  version: 1.2.5
+  resolution: "minimist@npm:1.2.5"
+"""
+
+
+def test_yarn_lock_classic_and_berry():
+    assert advisories._yarn_lock(YARN_CLASSIC) == [("@babel/code-frame", "7.12.13"), ("lodash", "4.17.20")]
+    assert advisories._yarn_lock(YARN_BERRY) == [("minimist", "1.2.5")]
+
+
+@pytest.mark.parametrize("text", [
+    "lockfileVersion: 5.4\npackages:\n  /lodash/4.17.20:\n    resolution: {integrity: x}\n"
+    "  /@babel/core/7.12.3_react@17.0.2:\n    dev: true\n",
+    "lockfileVersion: '6.0'\npackages:\n  /lodash@4.17.20:\n    resolution: {integrity: x}\n"
+    "  /@babel/core@7.12.3(react@17.0.2):\n    dev: true\n  /mine@link:../mine:\n    dev: false\n",
+    "lockfileVersion: '9.0'\nimporters:\n  .:\n    dependencies: {}\npackages:\n  lodash@4.17.20:\n"
+    "    resolution: {integrity: x}\n  '@babel/core@7.12.3':\n    resolution: {integrity: y}\n"
+    "snapshots:\n  lodash@4.17.20: {}\n",
+])
+def test_pnpm_lock_v5_v6_v9(text):
+    assert advisories._pnpm_lock(text) == [("lodash", "4.17.20"), ("@babel/core", "7.12.3")]
+
+
+def test_yarn_and_pnpm_lockfiles_are_queried(tmp_path, http):
+    (tmp_path / "yarn.lock").write_text(YARN_CLASSIC)
+    (tmp_path / "web").mkdir()
+    (tmp_path / "web" / "pnpm-lock.yaml").write_text("lockfileVersion: '9.0'\npackages:\n  minimist@1.2.5:\n    x: y\n")
+    http.add("POST", f"{OSV}/querybatch", {"results": [{}, {}, {}]})
+    advisories.scan(Context(path=str(tmp_path), repo=None, gh=None))
+    queries = [c for c in http.calls if c[0] == "POST"][0][2]["queries"]
+    assert {(q["package"]["name"], q["version"], q["package"]["ecosystem"]) for q in queries} == {
+        ("minimist", "1.2.5", "npm"), ("@babel/code-frame", "7.12.13", "npm"), ("lodash", "4.17.20", "npm")}
