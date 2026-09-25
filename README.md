@@ -204,4 +204,4 @@ All HTTP in the tests goes through a fake `urlopen` route table (`tests/conftest
 - `advisory` via OSV.dev needs a concrete version: a range such as `>=2,<3` is only checked when a lockfile (`package-lock.json`, `poetry.lock`, `uv.lock`) pins it. `yarn.lock` and `pnpm-lock.yaml` aren't read.
 - `deps` compares manifest specs only; it doesn't read lockfiles.
 - Team owners (`@org/team`) can't be assigned, so they are skipped.
-- The resolved/human close split depends on the `autopilot:resolved` label. Issues closed by v0.1 don't have it, so they count as closed by a human. If a human reopens and then closes a labelled issue, it still counts as an autopilot close.
+- The resolved/human close split depends on the `autopilot:resolved` label. Issues closed by v0.1 don't have it, so they count as closed by a human. (A labelled issue that a human reopened and closed again is detected from its events and also counts as closed by a human.)

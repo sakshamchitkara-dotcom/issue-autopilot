@@ -58,6 +58,13 @@ def closed_by_human(gi: dict) -> bool:
     return not is_open(gi) and RESOLVED_LABEL not in {lb["name"] for lb in gi.get("labels", [])}
 
 
+def reopened_since_resolved(events: list[dict]) -> bool:
+    """True when an issue was reopened after close-resolved labelled it: whatever closed it last was a human."""
+    labelled = [i for i, e in enumerate(events)
+                if e.get("event") == "labeled" and (e.get("label") or {}).get("name") == RESOLVED_LABEL]
+    return bool(labelled) and any(e.get("event") == "reopened" for e in events[labelled[-1]:])
+
+
 def index_existing(issues: list[dict]) -> dict[str, dict]:
     """fingerprint -> GitHub issue this tool filed earlier. Open beats closed, then newest wins."""
     out: dict[str, dict] = {}
