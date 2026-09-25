@@ -92,3 +92,18 @@ def test_majors_behind():
 def test_or_ranges_use_the_newest_alternative_for_lag():
     assert deps.majors_behind("^1 || ^2", "4.0.0") == 2
     assert len(deps.bounds("^1 || ^2")) == 2 and deps.bounds("^1 || whatever") == []
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("1.0rc1", (1, 0)), ("2.0.0.dev3", (2, 0, 0)), ("1.0.post1", (1, 0)), ("1.2.3-beta.1", (1, 2, 3)),
+    ("v4", (4,)), ("4.17.21+build.5", (4, 17, 21)), ("latest", ()),
+])
+def test_version_tuple_ignores_prerelease_suffixes(raw, expected):
+    assert deps.version_tuple(raw) == expected
+
+
+def test_advisory_fix_older_than_the_installed_version_is_ignored():
+    from issue_autopilot.sources import advisories
+    vuln = {"affected": [{"package": {"name": "x"}, "ranges": [{"events": [{"fixed": "1.0rc1"}, {"fixed": "1.0.2"}]}]}]}
+    # 1.0rc1 used to parse as 1.0.1 and was reported as the fix for 1.0.0
+    assert advisories._fixed_after(vuln, "x", "1.0.0") == "1.0.2"

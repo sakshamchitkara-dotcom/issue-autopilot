@@ -24,7 +24,11 @@ CLAUSE = re.compile(r"^(===|==|~=|>=|<=|!=|<|>|\^|~|=)?v?(\d+(?:\.(?:\d+|\*|x))*
 
 
 def version_tuple(v: str) -> tuple[int, ...]:
-    return tuple(int(x) for x in re.findall(r"\d+", v.split("-")[0].split("+")[0])[:4])
+    """Release numbers only: `1.0rc1`, `2.0.0.dev3`, `1.2.3-beta.1` and `v4` -> (1, 0), (2, 0, 0), (1, 2, 3), (4,).
+
+    Pre/post-release suffixes are dropped rather than read as an extra number (`1.0rc1` is not 1.0.1)."""
+    m = re.match(r"\s*v?(\d+(?:\.\d+)*)", v)
+    return tuple(int(x) for x in m.group(1).split(".")[:4]) if m else ()
 
 
 def _pad(t: tuple[int, ...]) -> tuple[int, ...]:
