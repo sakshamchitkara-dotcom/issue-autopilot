@@ -26,10 +26,11 @@ def test_extract_error_strips_noise():
 def test_failing_workflow_signal(http):
     http.add("GET", f"{API}/repos/o/r", {"default_branch": "main"})
     http.add("GET", f"{API}/repos/o/r/actions/runs?branch=main&status=completed&per_page=100", {"workflow_runs": [
+        {"id": 2, "workflow_id": 1, "conclusion": "success", "name": "CI", "created_at": "2024-05-01T09:00:00Z"},
         {"id": 3, "workflow_id": 1, "conclusion": "failure", "name": "CI", "path": ".github/workflows/ci.yml",
-         "html_url": "https://gh/run/3", "head_sha": "abcdef1234"},
-        {"id": 2, "workflow_id": 1, "conclusion": "success", "name": "CI"},  # older, ignored
-        {"id": 1, "workflow_id": 7, "conclusion": "success", "name": "Lint"},
+         "html_url": "https://gh/run/3", "head_sha": "abcdef1234", "created_at": "2024-05-01T10:00:00Z"},
+        {"id": 1, "workflow_id": 7, "conclusion": "success", "name": "Lint", "created_at": "2024-05-01T08:00:00Z"},
+        {"id": 0, "workflow_id": 7, "conclusion": "failure", "name": "Lint", "created_at": "2024-04-01T08:00:00Z"},
     ]})
     http.add("GET", f"{API}/repos/o/r/actions/runs/3/jobs?filter=latest",
              {"jobs": [{"id": 30, "name": "test", "conclusion": "failure"}, {"id": 31, "name": "ok", "conclusion": "success"}]})
