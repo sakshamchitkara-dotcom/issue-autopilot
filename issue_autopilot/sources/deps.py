@@ -96,6 +96,12 @@ def behind(spec: str, latest: str) -> bool:
     return new > _pad(upper) if inclusive else new >= _pad(upper)
 
 
+def majors_behind(spec: str, latest: str) -> int:
+    """How many major versions `latest` is ahead of the spec's floor (0 when unknown)."""
+    b, new = bounds(spec), version_tuple(latest)
+    return max(0, new[0] - b[0][0]) if b and new else 0
+
+
 def pypi_latest(name: str) -> str:
     return http_get_json(f"https://pypi.org/pypi/{urllib.parse.quote(name)}/json")["info"]["version"]
 
@@ -181,19 +187,24 @@ def scan(ctx: Context) -> list[Signal] | None:
 
     signals = []
     for (manifest, eco, name, spec), newest in zip(wanted, latest):
-        if not newest or not behind(spec, newest):
+        if not newest:
             continue
-        floor = bounds(spec)[0]
-        major = version_tuple(newest)[0] > floor[0]
+        lag = majors_behind(spec, newest)
+        blocked = behind(spec, newest)
+        if not blocked and not lag:  # in range, or an unbounded floor less than a major behind
+            continue
         shown = spec.lstrip("=") if re.fullmatch(r"==?\d[\w.]*", spec) else spec
+        note = f" ({lag} major{'s' * (lag != 1)} behind)" if lag else ""
+        if not blocked:
+            note = f" (allowed, but the floor is {lag} major{'s' * (lag != 1)} behind)"
         signals.append(
             Signal(
                 kind="deps",
                 group=manifest,
-                summary=f"{name} {shown} → {newest}" + (" (major)" if major else ""),
-                priority="P2" if major else "P3",
+                summary=f"{name} {shown} → {newest}{note}",
+                priority="P2" if blocked and lag else "P3",
                 path=manifest,
-                meta={"ecosystem": eco, "package": name, "spec": spec, "latest": newest},
+                meta={"ecosystem": eco, "package": name, "spec": spec, "latest": newest, "majors_behind": lag},
             )
         )
     return signals
