@@ -38,6 +38,12 @@ class Issue:
         return fingerprint(self.kind, self.group)
 
     @property
+    def digest(self) -> str:
+        """Hash of what the issue says. Excludes volatile bits (blame age, log text) so it only moves on real change."""
+        keys = sorted(f"{s.path}|{s.line}|{s.priority}|{s.summary}" for s in self.signals)
+        return hashlib.sha256("\n".join(keys).encode()).hexdigest()[:12]
+
+    @property
     def priority(self) -> str:
         return min((s.priority for s in self.signals), key=PRIORITIES.__getitem__)
 
