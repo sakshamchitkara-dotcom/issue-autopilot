@@ -53,7 +53,7 @@ def build_context(args, tmp: str) -> Context:
         clone(repo, token, path)
         if args.repo and args.repo != repo:
             die("--repo conflicts with the owner/repo target")
-    return Context(path=path, repo=repo, gh=gh, options={"stale_days": args.stale_days})
+    return Context(path=path, repo=repo, gh=gh, options={"stale_days": args.stale_days, "exclude": args.exclude})
 
 
 def collect(args, tmp: str) -> tuple[Context, list[Issue], list[str]]:
@@ -199,6 +199,8 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--repo", help="owner/repo for API sources and filing (default: origin remote)")
         sp.add_argument("--sources", help="comma-separated: todo,secret,deps,ci,stale-pr (default: all)")
         sp.add_argument("--stale-days", type=int, default=30, help="PR idle days before it counts as stale")
+        sp.add_argument("--exclude", action="append", default=[], metavar="GLOB",
+                        help="skip files matching this glob for file-based sources (repeatable), e.g. 'tests/*'")
 
     s = sub.add_parser("scan", help="list signals (read-only)")
     common(s)

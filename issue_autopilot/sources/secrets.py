@@ -33,7 +33,7 @@ def scan(ctx: Context) -> list[Signal] | None:
     if not ctx.path:
         return None
     signals = []
-    for rel, text in iter_text_files(ctx.path):
+    for rel, text in iter_text_files(ctx.path, ctx.options.get("exclude")):
         if SKIP_FILES.search(rel):
             continue
         for n, line in enumerate(text.splitlines(), 1):

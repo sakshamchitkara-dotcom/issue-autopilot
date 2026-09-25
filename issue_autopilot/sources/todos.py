@@ -18,7 +18,7 @@ def scan(ctx: Context) -> list[Signal] | None:
     if not ctx.path:
         return None
     signals = []
-    for rel, text in iter_text_files(ctx.path):
+    for rel, text in iter_text_files(ctx.path, ctx.options.get("exclude")):
         for n, line in enumerate(text.splitlines(), 1):
             m = PATTERN.search(line)
             if not m:

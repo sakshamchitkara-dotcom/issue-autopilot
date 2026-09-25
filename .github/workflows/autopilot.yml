@@ -42,5 +42,6 @@ jobs:
         run: |
           FLAG=""
           if [ "$APPLY" = "true" ]; then FLAG="--apply"; fi
-          autopilot file . --repo "$GITHUB_REPOSITORY" --max-issues 10 $FLAG
-          autopilot close-resolved . --repo "$GITHUB_REPOSITORY" $FLAG
+          # tests/ holds fake TODOs and secrets used as fixtures
+          autopilot file . --repo "$GITHUB_REPOSITORY" --exclude 'tests/*' --max-issues 10 $FLAG
+          autopilot close-resolved . --repo "$GITHUB_REPOSITORY" --exclude 'tests/*' $FLAG

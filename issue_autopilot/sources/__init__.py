@@ -1,6 +1,7 @@
-"""Signal sources. Each source is `fn(ctx) -> list[Signal]`; register it in SOURCES."""
+"""Signal sources. Each source is `scan(ctx) -> list[Signal] | None`, registered in `_registry()`."""
 from __future__ import annotations
 
+import fnmatch
 import os
 import subprocess
 from dataclasses import dataclass, field
@@ -22,8 +23,11 @@ class Context:
     warnings: list[str] = field(default_factory=list)
 
 
-def iter_text_files(root: str) -> Iterator[tuple[str, str]]:
-    """Yield (relative_path, text) for tracked (or, outside git, all) text files."""
+def iter_text_files(root: str, exclude: list[str] | None = None) -> Iterator[tuple[str, str]]:
+    """Yield (relative_path, text) for tracked (or, outside git, all) text files.
+
+    `exclude` holds fnmatch globs against the relative path, e.g. "tests/*".
+    """
     try:
         out = subprocess.run(["git", "-C", root, "ls-files", "-z"], capture_output=True, timeout=30)
         rels = [p for p in out.stdout.decode().split("\0") if p] if out.returncode == 0 else None
@@ -36,6 +40,8 @@ def iter_text_files(root: str) -> Iterator[tuple[str, str]]:
             rels += [os.path.relpath(os.path.join(d, f), root) for f in files]
     for rel in sorted(rels):
         if set(rel.split(os.sep)[:-1]) & SKIP_DIRS:
+            continue
+        if exclude and any(fnmatch.fnmatch(rel, pat) for pat in exclude):
             continue
         full = os.path.join(root, rel)
         try:
