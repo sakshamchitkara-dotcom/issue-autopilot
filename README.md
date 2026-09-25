@@ -67,7 +67,9 @@ When `ANTHROPIC_API_KEY` is set and `anthropic` is installed, each new issue's t
 
 ## GitHub Action
 
-`.github/workflows/autopilot.yml` runs every Monday and can also be started by hand. It stays in dry-run mode until you set the repository variable `AUTOPILOT_APPLY=true` or tick **apply** on a manual run. It uses the built-in `GITHUB_TOKEN` with `issues: write`, and appends `autopilot report` to the job summary. That token can't read Dependabot alerts, so `advisory` falls back to OSV.dev there. To use it in another repo, copy the file there.
+`.github/workflows/autopilot.yml` runs every Monday and can also be started by hand. It stays in dry-run mode until you set the repository variable `AUTOPILOT_APPLY=true` or tick **apply** on a manual run. It uses the built-in `GITHUB_TOKEN` with `issues: write`, and appends `autopilot report` to the job summary. That token can't read Dependabot alerts, so `advisory` falls back to OSV.dev there. The job runs `autopilot doctor` first, so its log shows what the token can do. To use it in another repo, copy the file there.
+
+To file as a GitHub App instead of `github-actions[bot]`, mint an installation token (for example with `actions/create-github-app-token`) and pass it as `GITHUB_TOKEN`. Installation tokens go through the same `/installation/repositories` check as the built-in token. This path is untested with a real App.
 
 ## Adding a source
 
@@ -195,6 +197,97 @@ $ autopilot file ~/projects/issue-autopilot-sandbox --sources deps      # pyproj
 | P2 | todo | `app/cache.py` | 2 | #4 | up to date |
 ```
 
+### v0.3 run
+
+`autopilot doctor` in the scheduled workflow, before and after the installation-token fix. Actions' `GITHUB_TOKEN` can't read `/user`, so `--apply` used to be refused in CI:
+
+```
+[  ok] token: from GITHUB_TOKEN
+[  ok] identity: installation token (GitHub App or Actions GITHUB_TOKEN)
+[warn] push access: no: dry runs work, --apply will be refused      # 0.2 check
+...
+[  ok] identity: installation token
+[  ok] push access: yes: --apply can write issues                    # after the fix
+[warn] dependabot alerts: not readable (403); advisory falls back to OSV.dev
+```
+
+The new `actions` source on this repository (these findings are what led to the bump to v7):
+
+```
+$ autopilot scan . --sources actions
+[P2] actions: .github/workflows/tests.yml  (fp=c7039cdfe38bcd5f)
+     - .github/workflows/tests.yml:18 actions/checkout@v4 → v7.0.1 (3 majors behind)
+     - .github/workflows/tests.yml:19 actions/setup-python@v5 → v7.0.0 (2 majors behind)
+```
+
+On the sandbox it filed one issue, labelled `autopilot, ci, P2`:
+
+```
+$ autopilot file ~/projects/issue-autopilot-sandbox --apply --sources actions
+  + created #8: CI: 1 outdated GitHub Action in .github/workflows/check.yml
+- [P2] `.github/workflows/check.yml:9` actions/checkout@v4 → v7.0.1 (3 majors behind)
+```
+
+Running the same command again straight away created a duplicate, `#9`, because the issue listing didn't include `#8` yet. That is fixed: autopilot now also fetches issue numbers past the end of the listing. After the fix, two back-to-back runs:
+
+```
+  + created #10: CI: 1 outdated GitHub Action in .github/workflows/check.yml
+  = skip (already open #10): CI: 1 outdated GitHub Action in .github/workflows/check.yml
+```
+
+`flaky` on a busy public repository (read-only; `--repo` points the API sources elsewhere):
+
+```
+$ autopilot scan . --repo pytest-dev/pytest --sources flaky
+[P2] flaky: .github/workflows/test.yml  (fp=b4d6d08a8bfe009a)
+     - job `build (ubuntu-py310-xdist)` in 'test' failed, then passed on the same commit
+```
+
+`advisory` on a `package.json` that only has ranges (`^4.17.0`, `~1.2.0`), with the versions taken from `package-lock.json`:
+
+```
+[P1] advisory: package-lock.json  (fp=04f354a3f040b477)
+     - lodash 4.17.20: GHSA-35jh-r3h4-6jhm Command Injection in lodash (HIGH severity; fixed in 4.17.21)
+     - minimist 1.2.5: GHSA-xvch-5gv4-984h Prototype Pollution in minimist (CRITICAL severity; fixed in 1.2.6)
+     - lodash 4.17.20: GHSA-29mw-wpgm-hmr9 Regular Expression Denial of Service (ReDoS) in lodash (MODERATE severity; fixed in 4.17.21)
+     ...
+```
+
+A human reopening and then closing an issue that `close-resolved` had labelled is now read from its events (sandbox `#7`):
+
+```
+before: ['assigned', 'labeled:autopilot', ..., 'labeled:autopilot:resolved', 'closed']  reopened_since_resolved = False
+after:  [..., 'labeled:autopilot:resolved', 'closed', 'reopened', 'closed']             reopened_since_resolved = True
+```
+
+`file --json` (dry run):
+
+```
+$ autopilot file ~/projects/issue-autopilot-sandbox --json --sources todo
+{
+  "mode": "dry-run",
+  "repo": "sakshamchitkara-dotcom/issue-autopilot-sandbox",
+  "login": null,
+  "groups": 1,
+  "created": 0,
+  "updated": 0,
+  "reopened": 0,
+  "warnings": [],
+  "issues": [
+    {
+      "action": "unchanged",
+      "number": 4,
+      "title": "Tech debt: 2 FIXME/TODO comments in app/cache.py",
+      "kind": "todo",
+      "group": "app/cache.py",
+      "priority": "P2",
+      "fingerprint": "1281c96c988ce75b",
+      "owner": null
+    }
+  ]
+}
+```
+
 ## Development
 
 ```bash
@@ -209,4 +302,7 @@ All HTTP in the tests goes through a fake `urlopen` route table (`tests/conftest
 - `advisory` via OSV.dev needs a concrete version: a range such as `>=2,<3` is only checked when a lockfile (`package-lock.json`, `poetry.lock`, `uv.lock`) pins it. `yarn.lock` and `pnpm-lock.yaml` aren't read.
 - `deps` compares manifest specs only; it doesn't read lockfiles.
 - Team owners (`@org/team`) can't be assigned, so they are skipped.
+- `actions` only compares version tags. SHA pins (even with a `# v4` comment) and branch refs are skipped, and so are actions in `action.yml` composite files.
+- `flaky` looks at the last 500 completed runs and fetches at most 40 job listings per scan. On a very busy repo that covers only hours. A job that was cancelled rather than failed doesn't count.
+- The GitHub Action path was checked with `doctor` and dry runs only. No `--apply` has run from Actions, because that would file issues on this repo.
 - The resolved/human close split depends on the `autopilot:resolved` label. Issues closed by v0.1 don't have it, so they count as closed by a human. (A labelled issue that a human reopened and closed again is detected from its events and also counts as closed by a human.)
