@@ -154,14 +154,20 @@ def parse_package_json(text: str) -> list[tuple[str, str]]:
 
 
 def parse_pyproject(text: str) -> list[tuple[str, str]]:
-    """[project] dependencies (PEP 508 strings) plus poetry dependency tables, incl. groups."""
+    """PEP 508 strings from [project] dependencies, optional-dependencies and PEP 735 [dependency-groups],
+    plus poetry dependency tables, incl. groups."""
     try:
         data = tomllib.loads(text)
     except (tomllib.TOMLDecodeError, UnicodeDecodeError):
         return []
     out = []
-    for req in (data.get("project") or {}).get("dependencies") or []:
-        if m := REQ_LINE.match(str(req)):
+    project = data.get("project") or {}
+    reqs = list(project.get("dependencies") or [])
+    for table in (project.get("optional-dependencies"), data.get("dependency-groups")):
+        for group in (table or {}).values():
+            reqs += group if isinstance(group, list) else []
+    for req in reqs:
+        if isinstance(req, str) and (m := REQ_LINE.match(req)):  # {include-group = ...} entries are skipped
             out.append((m.group(1), m.group(2).strip()))
     poetry = (data.get("tool") or {}).get("poetry") or {}
     tables = [poetry.get("dependencies"), poetry.get("dev-dependencies")]

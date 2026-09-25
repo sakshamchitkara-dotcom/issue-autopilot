@@ -107,3 +107,17 @@ def test_advisory_fix_older_than_the_installed_version_is_ignored():
     vuln = {"affected": [{"package": {"name": "x"}, "ranges": [{"events": [{"fixed": "1.0rc1"}, {"fixed": "1.0.2"}]}]}]}
     # 1.0rc1 used to parse as 1.0.1 and was reported as the fix for 1.0.0
     assert advisories._fixed_after(vuln, "x", "1.0.0") == "1.0.2"
+
+
+def test_pyproject_optional_dependencies_and_dependency_groups():
+    text = """
+[project]
+dependencies = ["httpx>=0.20"]
+[project.optional-dependencies]
+llm = ["anthropic>=1.0"]
+[dependency-groups]
+dev = ["pytest>=7", {include-group = "lint"}]
+lint = ["ruff==0.1.0"]
+"""
+    assert deps.parse_pyproject(text) == [
+        ("httpx", ">=0.20"), ("anthropic", ">=1.0"), ("pytest", ">=7"), ("ruff", "==0.1.0")]
