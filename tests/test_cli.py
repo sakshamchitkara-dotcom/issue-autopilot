@@ -276,3 +276,27 @@ def test_close_failure_is_reported(repo, http, capsys):
     http.add("POST", f"{API}/repos/o/r/issues/2/comments", {"message": "locked"}, status=403)
     run("close-resolved", repo, "--repo", "o/r", "--sources", "todo", "--apply")
     assert "failed to close #2: GitHub API 403" in capsys.readouterr().err
+
+
+def test_json_output_for_file_close_and_report(repo, http, capsys):
+    import json
+    gone = render.render(triage.group([todos.Signal("todo", "gone.py", "TODO: x", path="gone.py", line=1)])[0])
+    base_routes(http, open_issues=[closed_issue_for(repo, "a.py", 3),
+                                   {"number": 4, "title": gone.title, "body": gone.body, "state": "open"}])
+    run("file", repo, "--repo", "o/r", "--sources", "todo", "--json", "--max-issues", "1")
+    data = json.loads(capsys.readouterr().out)
+    assert (data["mode"], data["created"], data["groups"]) == ("dry-run", 0, 3)
+    assert [(r["action"], r["group"], r["number"]) for r in data["issues"]] == [
+        ("suppressed", "a.py", 3), ("deferred", "c.py", None), ("would create", "b.py", None)]
+    assert "<!-- issue-autopilot fp=" in data["issues"][2]["body"]
+
+    run("close-resolved", repo, "--repo", "o/r", "--sources", "todo", "--json")
+    data = json.loads(capsys.readouterr().out)
+    assert data["resolved"] == [{"number": 4, "title": gone.title, "action": "would close"}]
+
+    run("report", repo, "--repo", "o/r", "--sources", "todo", "--json")
+    data = json.loads(capsys.readouterr().out)
+    assert data["priorities"]["P2"] == {"groups": 2, "signals": 2} and data["resolved"][0]["number"] == 4
+    assert {(g["group"], g["issue"], g["status"]) for g in data["groups"]} == {
+        ("a.py", 3, "closed by a human"), ("b.py", None, "new"), ("c.py", None, "new")}
+    assert writes(http) == []

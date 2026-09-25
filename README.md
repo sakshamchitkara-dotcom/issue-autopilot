@@ -57,6 +57,8 @@ autopilot report . --out report.md     # read-only Markdown summary of groups an
 autopilot doctor .                     # check token, push access and what each source can read (exit 1 on failures)
 ```
 
+Every command takes `--json`. `scan` prints the groups, `file` and `close-resolved` print each action they took or would take (`would create`, `updated`, `suppressed`, `deferred`, `closed`, `failed ...`), `report --json` prints the same data as the Markdown table, and `doctor --json` prints the checks.
+
 `--repo owner/repo` overrides the repo that's inferred from the checkout's `origin`. `--no-llm` forces the template output.
 
 ### Claude summarizer
