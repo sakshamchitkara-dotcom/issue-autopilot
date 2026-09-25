@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0 - 2026-09-25
+
+### Added
+- **`yarn.lock` and `pnpm-lock.yaml` in `advisory`.** The OSV.dev fallback now reads yarn classic and berry lockfiles and pnpm v5, v6 and v9 lockfiles, so range specs in `package.json` are checked for yarn and pnpm projects too.
+- **More of `pyproject.toml` in `deps` and `advisory`:** `[project.optional-dependencies]` and PEP 735 `[dependency-groups]`.
+
+### Fixed
+- Pre-release and post-release suffixes were read as an extra version number (`1.0rc1` as 1.0.1). That could name a fix older than the installed version as the upgrade target. Only the release numbers are compared now.
+
 ## 0.3.0 - 2026-09-25
 
 ### Added
