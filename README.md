@@ -123,6 +123,73 @@ $ autopilot file psf/requests --sources todo --apply
 error: sakshamchitkara-dotcom has no push access to psf/requests; refusing to write issues there
 ```
 
+### v0.2 run
+
+The same sandbox after adding a TODO to `app/cache.py`, a `pyproject.toml` with ranges and a `CODEOWNERS` file (outputs trimmed):
+
+```
+$ autopilot file ~/projects/issue-autopilot-sandbox --apply --assign
+warning: advisory: Dependabot alerts not readable (403); using OSV.dev instead
+[apply] 6 issue group(s): 2 new, 4 changed, 0 already open, 0 closed by a human, 0 over cap (10) -> sakshamchitkara-dotcom/issue-autopilot-sandbox
+  ~ updated #3: Dependencies: 2 outdated packages in requirements.txt
+     assign: sakshamchitkara-dotcom (via CODEOWNERS)
+  ~ updated #4: Tech debt: 3 FIXME/TODO comments in app/cache.py
+     assign: sakshamchitkara-dotcom (via CODEOWNERS)
+  + created #6: Security: 6 known vulnerabilities in dependencies from requirements.txt
+  + created #7: Dependencies: 2 outdated packages in pyproject.toml
+created 2, updated 4, reopened 0 issue(s) on sakshamchitkara-dotcom/issue-autopilot-sandbox as sakshamchitkara-dotcom
+```
+
+`#7` listed `django ^3.2 → 6.1.1 (3 majors behind)` and `httpx >=0.20,<0.21 → 0.28.1`. `#6` came from OSV.dev, for example `flask 1.1.4: GHSA-m2qf-hxjv-5gpq ... (HIGH severity; fixed in 2.2.5)`.
+
+After one TODO was deleted and pushed, `#4` was edited in place, and this changelog comment was posted on it:
+
+```
+$ autopilot file ~/projects/issue-autopilot-sandbox --apply --sources todo
+[apply] 1 issue group(s): 0 new, 1 changed, 0 already open, 0 closed by a human, 0 over cap (10) -> ...
+  ~ updated #4: Tech debt: 2 FIXME/TODO comments in app/cache.py
+
+issue-autopilot updated this issue because its signals changed.
+**Removed**
+- [P3] `app/cache.py:12` TODO: expose cache hit/miss counters (sakshamchitkara-dotcom, 0d old)
+```
+
+(That run also listed the FIXME as removed and then re-added, because its line number had moved. That was fixed before release: line moves and CI run links are now ignored.)
+
+A human closes `#4`, and the next run respects that until `--reopen` is passed:
+
+```
+$ gh issue close 4 --reason "not planned"
+$ autopilot file ~/projects/issue-autopilot-sandbox --apply
+[apply] 6 issue group(s): 0 new, 0 changed, 5 already open, 1 closed by a human, 0 over cap (10) -> ...
+  = skip (closed by a human #4; --reopen to override): Tech debt: 2 FIXME/TODO comments in app/cache.py
+created 0, updated 0, reopened 0 issue(s) on sakshamchitkara-dotcom/issue-autopilot-sandbox as sakshamchitkara-dotcom
+
+$ autopilot file ~/projects/issue-autopilot-sandbox --apply --reopen --sources todo
+  ^ reopened #4: Tech debt: 2 FIXME/TODO comments in app/cache.py
+```
+
+`close-resolved` labels what it closes. If the signal comes back, that is treated as a regression and filed fresh (dry run):
+
+```
+$ autopilot close-resolved ~/projects/issue-autopilot-sandbox --apply   # after deleting pyproject.toml
+  x closed #7: Dependencies: 2 outdated packages in pyproject.toml       # labels: ..., autopilot:resolved
+$ autopilot file ~/projects/issue-autopilot-sandbox --sources deps      # pyproject.toml restored locally
+[dry-run] 2 issue group(s): 1 new, 0 changed, 1 already open, 0 closed by a human, 0 over cap (10) -> ...
+```
+
+`autopilot report` on the sandbox afterwards:
+
+```
+| Priority | Kind | Group | Signals | Issue | Status |
+|---|---|---|---:|---|---|
+| P1 | advisory | `requirements.txt` | 6 | #6 | up to date |
+| P1 | ci | `.github/workflows/check.yml` | 1 | #1 | up to date |
+| P1 | secret | `app/settings.py` | 1 | #2 | up to date |
+| P2 | deps | `requirements.txt` | 2 | #3 | up to date |
+| P2 | todo | `app/cache.py` | 2 | #4 | up to date |
+```
+
 ## Development
 
 ```bash
