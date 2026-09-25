@@ -32,6 +32,8 @@ def title_for(issue: Issue) -> str:
         return f"Dependencies: {n} outdated package{'s' * (n != 1)} in {g}"
     if issue.kind == "ci":
         return issue.signals[0].summary.replace("Workflow", "CI failing: workflow", 1)
+    if issue.kind == "actions":
+        return f"CI: {n} outdated GitHub Action{'s' * (n != 1)} in {g}"
     if issue.kind == "stale-pr":
         return f"Stale PRs: {n} open pull request{'s' * (n != 1)} with no recent activity"
     return f"{issue.kind}: {n} signal{'s' * (n != 1)} in {g}"
@@ -46,6 +48,8 @@ def intro_for(issue: Issue) -> str:
         "deps": "These dependency specs don't allow the latest release on their registry, or their floor is a major "
                 "version or more behind it. Review changelogs and upgrade.",
         "ci": "The latest run of this workflow on the default branch failed. Excerpt of the failing job log is below.",
+        "actions": "These workflow steps use an older major version of an action than its latest release. Old majors "
+                   "stop getting fixes and can run on deprecated runtimes. Read the release notes and bump the tag.",
         "stale-pr": "These pull requests have had no activity for a while. Merge, close, or ping for review.",
     }.get(issue.kind, "Automatically detected signals.")
 

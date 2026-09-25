@@ -9,6 +9,7 @@ Turns signals already sitting in a repository into deduplicated GitHub issues. I
 | `deps`     | Specs in `requirements*.txt`, `pyproject.toml` (`[project]` and poetry) and `package.json` that don't allow the latest PyPI/npm release (`==`, `>=`/`<`, `~=`, `^`, `~`, `1.x`, npm `||` and `1.2 - 2.0`), with how many major versions they lag. Unbounded floors are reported once they are a major version or more behind. | manifest |
 | `advisory` | Known vulnerabilities: open Dependabot alerts when the token can read them, otherwise [OSV.dev](https://osv.dev) lookups for every exact pin and every package in `package-lock.json`, `poetry.lock` and `uv.lock` | manifest |
 | `ci`       | Workflows whose latest run on the default branch failed, with an error excerpt from the failed job's log | workflow |
+| `actions`  | Workflow steps whose `uses: owner/repo@vN` tag is at least one major version behind the action's latest release (SHA and branch pins are skipped) | workflow |
 | `stale-pr` | Open PRs with no activity for `--stale-days` (default 30) | repo |
 
 It uses only the standard library (plus `tomli` on Python 3.10), and the GitHub REST client is built on `urllib`. The Claude summarizer is optional (`pip install .[llm]`).
