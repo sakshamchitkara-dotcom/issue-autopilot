@@ -57,12 +57,13 @@ def iter_text_files(root: str, exclude: list[str] | None = None) -> Iterator[tup
 
 
 def _registry() -> dict[str, Callable[[Context], list[Signal]]]:
-    from . import actions, deps, prs, secrets, todos
+    from . import actions, advisories, deps, prs, secrets, todos
 
     return {
         "todo": todos.scan,
         "secret": secrets.scan,
         "deps": deps.scan,
+        "advisory": advisories.scan,
         "ci": actions.scan,
         "stale-pr": prs.scan,
     }
