@@ -153,3 +153,22 @@ def test_signal_back_after_autopilot_close_is_refiled(repo, http, capsys):
     run("file", repo, "--repo", "o/r", "--sources", "todo")
     out = capsys.readouterr().out
     assert "3 new" in out and "closed by a human #3" not in out
+
+
+def test_assign_is_dry_run_unless_flagged_and_applied(repo, http, capsys):
+    with open(f"{repo}/CODEOWNERS", "w") as fh:
+        fh.write("a.py @alice\n")
+    base_routes(http)
+    http.add("POST", f"{API}/repos/o/r/issues", {"number": 5, "html_url": "u"})
+    http.add("GET", f"{API}/repos/o/r/commits/", {"author": None})
+    run("file", repo, "--repo", "o/r", "--sources", "todo", "--assign")
+    assert "would assign: alice (via CODEOWNERS)" in capsys.readouterr().out and writes(http) == []
+
+    run("file", repo, "--repo", "o/r", "--sources", "todo", "--apply")
+    assert all("assignees" not in c[2] for c in writes(http))
+
+    http.calls.clear()
+    run("file", repo, "--repo", "o/r", "--sources", "todo", "--apply", "--assign")
+    assigned = {c[2]["title"]: c[2].get("assignees") for c in writes(http)}
+    assert assigned["Tech debt: 1 TODO comment in a.py"] == ["alice"]
+    assert assigned["Tech debt: 1 FIXME comment in b.py"] is None  # Ada's email maps to no account
