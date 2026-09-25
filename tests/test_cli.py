@@ -6,7 +6,7 @@ from issue_autopilot.sources import Context, todos
 from helpers import make_repo
 
 API = "https://api.github.com"
-ISSUES = f"{API}/repos/o/r/issues?state=open&per_page=100"
+ISSUES = f"{API}/repos/o/r/issues?state=all&per_page=100"
 FILES = {"a.py": "# TODO: one\n", "b.py": "# FIXME: two\n", "c.py": "# HACK: three\n"}
 
 
@@ -81,10 +81,12 @@ def test_close_resolved(repo, http, capsys):
 
     http.add("GET", f"{API}/repos/o/r/issues/2", {"state": "open"})
     http.add("POST", f"{API}/repos/o/r/issues/2/comments", {})
+    http.add("POST", f"{API}/repos/o/r/issues/2/labels", [])
     http.add("PATCH", f"{API}/repos/o/r/issues/2", {})
     run("close-resolved", repo, "--repo", "o/r", "--sources", "todo", "--apply")
     assert [(m, u.rsplit("/", 2)[-2:]) for m, u, _ in writes(http)] == [
-        ("POST", ["2", "comments"]), ("PATCH", ["issues", "2"])]
+        ("POST", ["2", "comments"]), ("POST", ["2", "labels"]), ("PATCH", ["issues", "2"])]
+    assert writes(http)[1][2] == {"labels": ["autopilot:resolved"]}
 
 
 def test_scan_json(repo, http, capsys):
@@ -120,3 +122,34 @@ def test_changed_group_is_edited_in_place_with_changelog(repo, http, capsys):
     note = [c for c in writes(http) if c[1].endswith("/issues/7/comments")][0][2]["body"]
     assert "**Added**" in note and "TODO: one" in note and "**Removed**" in note and "TODO: old" in note
     assert "updated #7" in capsys.readouterr().out
+
+
+def closed_issue_for(repo, group, number, labels=()):
+    sigs = todos.scan(Context(path=repo, repo=None, gh=None))
+    issue = render.render([i for i in triage.group(sigs) if i.group == group][0])
+    return {"number": number, "title": issue.title, "body": issue.body, "state": "closed",
+            "labels": [{"name": n} for n in ("autopilot", *labels)]}
+
+
+def test_human_close_is_respected_and_reopen_overrides(repo, http, capsys):
+    base_routes(http, open_issues=[closed_issue_for(repo, "a.py", 3)])
+    http.add("POST", f"{API}/repos/o/r/issues", {"number": 9, "html_url": "u"})
+    run("file", repo, "--repo", "o/r", "--sources", "todo", "--apply")
+    out = capsys.readouterr().out
+    assert "closed by a human #3; --reopen to override" in out
+    assert all("a.py" not in c[2]["title"] for c in writes(http)) and len(writes(http)) == 2
+
+    http.calls.clear()
+    http.add("PATCH", f"{API}/repos/o/r/issues/3", {})
+    http.add("POST", f"{API}/repos/o/r/issues/3/comments", {})
+    run("file", repo, "--repo", "o/r", "--sources", "todo", "--apply", "--reopen", "--max-issues", "1")
+    assert [(m, u.split("/o/r/")[1]) for m, u, _ in writes(http)] == [
+        ("PATCH", "issues/3"), ("POST", "issues/3/comments")]
+    assert writes(http)[0][2]["state"] == "open" and "reopened #3" in capsys.readouterr().out
+
+
+def test_signal_back_after_autopilot_close_is_refiled(repo, http, capsys):
+    base_routes(http, open_issues=[closed_issue_for(repo, "a.py", 3, labels=["autopilot:resolved"])])
+    run("file", repo, "--repo", "o/r", "--sources", "todo")
+    out = capsys.readouterr().out
+    assert "3 new" in out and "closed by a human #3" not in out

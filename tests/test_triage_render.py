@@ -116,3 +116,12 @@ def test_digest_tracks_signal_changes_not_blame_age():
 def test_legacy_marker_still_parses():
     body = "x\n<!-- issue-autopilot fp=0123456789abcdef kind=todo -->"
     assert triage.parse_marker(body) == ("0123456789abcdef", "todo") and triage.marker_digest(body) is None
+
+
+def test_index_prefers_open_then_newest():
+    body = render.render(triage.group(sigs())[0]).body
+    idx = triage.index_existing([{"number": 1, "body": body, "state": "open"},
+                                 {"number": 5, "body": body, "state": "closed", "labels": []}])
+    assert idx[triage.group(sigs())[0].fingerprint]["number"] == 1
+    assert triage.closed_by_human({"state": "closed", "labels": [{"name": "autopilot:resolved"}]}) is False
+    assert triage.closed_by_human({"state": "closed", "labels": []}) is True

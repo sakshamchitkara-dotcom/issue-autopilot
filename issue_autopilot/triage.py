@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from .models import PRIORITIES, Issue, Signal
 
 BOT_LABEL = "autopilot"
+RESOLVED_LABEL = "autopilot:resolved"  # added by close-resolved; a closed issue without it was closed by a human
 KIND_LABELS = {
     "todo": "tech-debt",
     "ci": "ci",
@@ -48,12 +49,23 @@ def group(signals: list[Signal]) -> list[Issue]:
     return issues
 
 
-def index_existing(open_issues: list[dict]) -> dict[str, dict]:
-    """fingerprint -> GitHub issue, for issues this tool filed earlier."""
-    out = {}
-    for gi in open_issues:
+def is_open(gi: dict) -> bool:
+    return gi.get("state", "open") == "open"
+
+
+def closed_by_human(gi: dict) -> bool:
+    return not is_open(gi) and RESOLVED_LABEL not in {lb["name"] for lb in gi.get("labels", [])}
+
+
+def index_existing(issues: list[dict]) -> dict[str, dict]:
+    """fingerprint -> GitHub issue this tool filed earlier. Open beats closed, then newest wins."""
+    out: dict[str, dict] = {}
+    for gi in issues:
         parsed = parse_marker(gi.get("body"))
-        if parsed:
+        if not parsed:
+            continue
+        cur = out.get(parsed[0])
+        if cur is None or (is_open(gi), gi.get("number", 0)) > (is_open(cur), cur.get("number", 0)):
             out[parsed[0]] = gi
     return out
 
@@ -63,22 +75,35 @@ class Plan:
     create: list[Issue] = field(default_factory=list)
     update: list[Issue] = field(default_factory=list)  # open, but the signals changed
     unchanged: list[Issue] = field(default_factory=list)
+    reopen: list[Issue] = field(default_factory=list)  # closed by a human, --reopen given
+    suppressed: list[Issue] = field(default_factory=list)  # closed by a human: respect it
     over: list[Issue] = field(default_factory=list)  # deferred by the per-run cap
 
 
-def plan(issues: list[Issue], existing: dict[str, dict], cap: int) -> Plan:
-    """Decide what to do with each issue group. Creates and edits are capped separately."""
+def plan(issues: list[Issue], existing: dict[str, dict], cap: int, reopen: bool = False) -> Plan:
+    """Decide what to do with each issue group.
+
+    New issues and reopens share the cap; edits have their own. A group whose issue was
+    closed by close-resolved and came back is filed fresh (a regression); one a human
+    closed is left alone unless `reopen`.
+    """
     p = Plan()
     for i in issues:
         gi = existing.get(i.fingerprint)
-        if gi is None:
+        if gi is None or (not is_open(gi) and not closed_by_human(gi)):
             p.create.append(i)
+        elif closed_by_human(gi):
+            (p.reopen if reopen else p.suppressed).append(i)
         elif marker_digest(gi.get("body")) != i.digest:
             p.update.append(i)
         else:
             p.unchanged.append(i)
-    p.over = p.create[cap:] + p.update[cap:]
-    p.create, p.update = p.create[:cap], p.update[:cap]
+    new = p.reopen + p.create
+    p.over = new[cap:] + p.update[cap:]
+    keep = {id(i) for i in new[:cap]}
+    p.reopen = [i for i in p.reopen if id(i) in keep]
+    p.create = [i for i in p.create if id(i) in keep]
+    p.update = p.update[:cap]
     return p
 
 
@@ -87,6 +112,8 @@ def resolved(existing: dict[str, dict], current: list[Issue], scanned_kinds: lis
     live = {i.fingerprint for i in current}
     out = []
     for fp, gi in existing.items():
+        if not is_open(gi):
+            continue
         _, kind = parse_marker(gi.get("body"))
         if kind in scanned_kinds and fp not in live:
             out.append(gi)

@@ -82,12 +82,13 @@ def require_write_access(ctx: Context) -> str:
 
 
 def existing_bot_issues(ctx: Context) -> dict[str, dict]:
+    """Open and closed autopilot issues: closed ones tell us what a human already dismissed."""
     if not (ctx.gh and ctx.repo):
         return {}
     try:
-        return triage.index_existing(ctx.gh.open_issues(ctx.repo))
+        return triage.index_existing(ctx.gh.issues(ctx.repo, "all"))
     except GitHubError as e:
-        die(f"could not list open issues on {ctx.repo}: {e}")
+        die(f"could not list issues on {ctx.repo}: {e}")
 
 
 def indent(text: str, pad: str = "     ") -> str:
@@ -122,18 +123,22 @@ def cmd_file(args) -> int:
         ctx, issues, _ = collect(args, tmp)
     login = require_write_access(ctx) if args.apply else None
     existing = existing_bot_issues(ctx)
-    p = triage.plan(issues, existing, args.max_issues)
+    p = triage.plan(issues, existing, args.max_issues, reopen=args.reopen)
     client = None if args.no_llm else make_client()
-    for issue in p.create + p.update:
+    for issue in p.create + p.update + p.reopen:
         polish(issue, client) if client else render(issue)
 
     mode = "apply" if args.apply else "dry-run"
     where = ctx.repo or "(no GitHub repo)"
     print(f"[{mode}] {len(issues)} issue group(s): {len(p.create)} new, {len(p.update)} changed, "
-          f"{len(p.unchanged)} already open, {len(p.over)} over cap ({args.max_issues}) -> {where}")
+          f"{len(p.unchanged)} already open, {len(p.suppressed) + len(p.reopen)} closed by a human, "
+          f"{len(p.over)} over cap ({args.max_issues}) -> {where}")
     for i in p.unchanged:
         gi = existing[i.fingerprint]
         print(f"  = skip (already open #{gi['number']}): {gi['title']}")
+    for i in p.suppressed:
+        gi = existing[i.fingerprint]
+        print(f"  = skip (closed by a human #{gi['number']}; --reopen to override): {gi['title']}")
     for i in p.over:
         print(f"  ~ deferred (cap reached): {i.kind}: {i.group}")
 
@@ -157,6 +162,22 @@ def cmd_file(args) -> int:
         edited += 1
         print(f"  ~ updated #{gi['number']}: {issue.title}")
 
+    reopened = 0
+    for issue in p.reopen:
+        gi = existing[issue.fingerprint]
+        if not args.apply:
+            print(f"  ^ [would reopen] #{gi['number']}: {issue.title}")
+            continue
+        try:
+            ctx.gh.update_issue(ctx.repo, gi["number"], state="open", title=issue.title, body=issue.body)
+            ctx.gh.comment(ctx.repo, gi["number"], "issue-autopilot reopened this issue (`--reopen`): its signals "
+                                                   "are still present.\n\n" + changelog(gi.get("body"), issue.body))
+        except GitHubError as e:
+            print(f"  ! failed to reopen #{gi['number']}: {e}", file=sys.stderr)
+            continue
+        reopened += 1
+        print(f"  ^ reopened #{gi['number']}: {issue.title}")
+
     created = 0
     for n, issue in enumerate(p.create, 1):
         if not args.apply:
@@ -172,7 +193,7 @@ def cmd_file(args) -> int:
         created += 1
         print(f"  + created #{gi['number']}: {issue.title}\n    {gi['html_url']}")
     if args.apply:
-        print(f"\ncreated {created}, updated {edited} issue(s) on {ctx.repo} as {login}")
+        print(f"\ncreated {created}, updated {edited}, reopened {reopened} issue(s) on {ctx.repo} as {login}")
     else:
         print("\n(dry run: nothing was written; re-run with --apply to create/update these issues)")
     return 0
@@ -188,7 +209,8 @@ def cmd_close_resolved(args) -> int:
     existing = existing_bot_issues(ctx)
     gone = triage.resolved(existing, issues, ran)[: args.max_issues]
     mode = "apply" if args.apply else "dry-run"
-    print(f"[{mode}] {len(existing)} open autopilot issue(s) on {ctx.repo}; {len(gone)} resolved "
+    n_open = sum(map(triage.is_open, existing.values()))
+    print(f"[{mode}] {n_open} open autopilot issue(s) on {ctx.repo}; {len(gone)} resolved "
           f"(checked sources: {', '.join(ran)})")
     for gi in gone:
         if not args.apply:
@@ -201,6 +223,8 @@ def cmd_close_resolved(args) -> int:
                 continue
             ctx.gh.comment(ctx.repo, gi["number"], "issue-autopilot: the signals behind this issue are no longer "
                                                   "detected, closing as resolved.")
+            # The label is how `file` tells our closes from a human's; add it before closing.
+            ctx.gh.add_labels(ctx.repo, gi["number"], [triage.RESOLVED_LABEL])
             ctx.gh.close_issue(ctx.repo, gi["number"])
             print(f"  x closed #{gi['number']}: {gi['title']}")
         except GitHubError as e:
@@ -233,6 +257,8 @@ def build_parser() -> argparse.ArgumentParser:
     f.add_argument("--apply", action="store_true", help="actually create issues")
     f.add_argument("--max-issues", type=int, default=DEFAULT_CAP, help=f"per-run cap (default {DEFAULT_CAP})")
     f.add_argument("--no-llm", action="store_true", help="skip the Claude summarizer even if a key is set")
+    f.add_argument("--reopen", action="store_true",
+                   help="reopen autopilot issues a human closed if their signals are still present")
     f.set_defaults(func=cmd_file)
 
     c = sub.add_parser("close-resolved", help="close autopilot issues whose signals are gone (dry-run unless --apply)")
