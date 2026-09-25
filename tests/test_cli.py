@@ -221,3 +221,37 @@ def test_bad_sources_and_caps_fail_before_any_work(repo, http, capsys):
 def test_sources_list_tolerates_spaces(repo, http, capsys):
     run("scan", repo, "--sources", "todo, secret")
     assert "sources: todo, secret" in capsys.readouterr().out
+
+
+def test_remote_target_clones_without_leaking_the_token(tmp_path, http, monkeypatch, capsys):
+    import subprocess
+    real_run, clones = subprocess.run, []
+    src = make_repo(tmp_path / "src", FILES)
+
+    def fake_run(cmd, **kw):
+        if cmd[:2] == ["git", "clone"]:
+            clones.append((cmd, kw.get("env") or {}))
+            return real_run(["git", "clone", "-q", src, cmd[-1]], capture_output=True, text=True)
+        return real_run(cmd, **kw)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setenv("GITHUB_TOKEN", "sekrit-token")
+    run("scan", "https://github.com/octo/cat.git", "--sources", "todo")
+    [(cmd, env)] = clones
+    assert cmd[-2] == "https://github.com/octo/cat.git" and not any("sekrit" in c for c in cmd)
+    assert env["GIT_CONFIG_KEY_0"] == "http.https://github.com/.extraheader"
+    assert "sekrit" not in env["GIT_CONFIG_VALUE_0"]  # base64, and only in the child's env
+    assert "scanned octo/cat" in capsys.readouterr().out
+
+    with pytest.raises(SystemExit):
+        run("scan", "octo/cat", "--repo", "other/repo", "--sources", "todo")
+    assert "--repo conflicts" in capsys.readouterr().err
+
+
+def test_clone_failure_is_reported(http, monkeypatch, capsys):
+    import subprocess
+    monkeypatch.setattr(subprocess, "run", lambda cmd, **kw: subprocess.CompletedProcess(cmd, 128, "", "not found"))
+    monkeypatch.setenv("GITHUB_TOKEN", "t")
+    with pytest.raises(SystemExit):
+        run("scan", "octo/missing", "--sources", "todo")
+    assert "could not clone octo/missing: not found" in capsys.readouterr().err
