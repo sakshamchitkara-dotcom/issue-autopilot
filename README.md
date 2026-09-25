@@ -6,8 +6,8 @@ Turns signals already sitting in a repository into deduplicated GitHub issues. I
 |------------|---------------|----------------------------|
 | `todo`     | `TODO` / `FIXME` / `HACK` / `XXX` comments, with the `git blame` author and age | file |
 | `secret`   | Hardcoded credentials (AWS, GitHub, Slack, Anthropic and OpenAI keys, private keys, `password = "..."`). Output is always redacted. | file |
-| `deps`     | Specs in `requirements*.txt`, `pyproject.toml` (`[project]` and poetry) and `package.json` that don't allow the latest PyPI/npm release (`==`, `>=`/`<`, `~=`, `^`, `~`, `1.x`, npm `||` and `1.2 - 2.0`), with how many major versions they lag. Unbounded floors are reported once they are a major version or more behind. | manifest |
-| `advisory` | Known vulnerabilities: open Dependabot alerts when the token can read them, otherwise [OSV.dev](https://osv.dev) lookups for every exact pin and every package in `package-lock.json`, `poetry.lock` and `uv.lock` | manifest |
+| `deps`     | Specs in `requirements*.txt`, `pyproject.toml` (`[project]` dependencies and extras, `[dependency-groups]`, poetry) and `package.json` that don't allow the latest PyPI/npm release (`==`, `>=`/`<`, `~=`, `^`, `~`, `1.x`, npm `||` and `1.2 - 2.0`), with how many major versions they lag. Unbounded floors are reported once they are a major version or more behind. | manifest |
+| `advisory` | Known vulnerabilities: open Dependabot alerts when the token can read them, otherwise [OSV.dev](https://osv.dev) lookups for every exact pin and every package in `package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `poetry.lock` and `uv.lock` | manifest |
 | `ci`       | Workflows whose latest run on the default branch failed, with an error excerpt from the failed job's log | workflow |
 | `actions`  | Workflow steps whose `uses: owner/repo@vN` tag is at least one major version behind the action's latest release (SHA and branch pins are skipped) | workflow |
 | `flaky`    | CI jobs that failed and then passed on the same commit (a re-run that went green, or two runs of one commit that disagree), at least twice in the last 500 completed runs | workflow |
@@ -288,6 +288,31 @@ $ autopilot file ~/projects/issue-autopilot-sandbox --json --sources todo
 }
 ```
 
+### v0.4 run
+
+`yarn.lock` and `pnpm-lock.yaml` against the live OSV.dev API (a scratch directory with `lodash 4.17.20` in a classic `yarn.lock` and `minimist 1.2.5` in a v9 `web/pnpm-lock.yaml`; output trimmed):
+
+```
+$ autopilot scan ./locks --sources advisory
+4 signal(s) in 2 group(s)
+
+[P1] advisory: web/pnpm-lock.yaml  (fp=1db13dda7439ee42)
+     - minimist 1.2.5: GHSA-xvch-5gv4-984h Prototype Pollution in minimist (CRITICAL severity; fixed in 1.2.6)
+[P1] advisory: yarn.lock  (fp=eb0bc1298e499a21)
+     - lodash 4.17.20: GHSA-35jh-r3h4-6jhm Command Injection in lodash (HIGH severity; fixed in 4.17.21)
+     - lodash 4.17.20: GHSA-29mw-wpgm-hmr9 Regular Expression Denial of Service (ReDoS) in lodash (MODERATE severity; fixed in 4.17.21)
+     ...
+```
+
+`deps` on this repository now reads `[project.optional-dependencies]` too, which is how the `pytest>=7` floor showed up:
+
+```
+$ autopilot scan . --sources deps --exclude 'tests/*'
+[P3] deps: pyproject.toml  (fp=ff57327b20661edd)
+     - tomli >=1.1 → 2.4.1 (allowed, but the floor is 1 major behind)
+     - pytest >=7 → 9.1.1 (allowed, but the floor is 2 majors behind)
+```
+
 ## Development
 
 ```bash
@@ -299,7 +324,8 @@ All HTTP in the tests goes through a fake `urlopen` route table (`tests/conftest
 
 ## Known limits
 
-- `advisory` via OSV.dev needs a concrete version: a range such as `>=2,<3` is only checked when a lockfile (`package-lock.json`, `poetry.lock`, `uv.lock`) pins it. `yarn.lock` and `pnpm-lock.yaml` aren't read.
+- `advisory` via OSV.dev needs a concrete version: a range such as `>=2,<3` is only checked when a lockfile (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `poetry.lock`, `uv.lock`) pins it. The yarn and pnpm parsers read only package names and versions, line by line; they were checked against hand-written v1/berry and pnpm v5/v6/v9 samples, not a large real-world lockfile.
+- Versions are compared by their release numbers only, so a pre-release such as `1.0rc1` counts as `1.0`.
 - `deps` compares manifest specs only; it doesn't read lockfiles.
 - Team owners (`@org/team`) can't be assigned, so they are skipped.
 - `actions` only compares version tags. SHA pins (even with a `# v4` comment) and branch refs are skipped, and so are actions in `action.yml` composite files.
