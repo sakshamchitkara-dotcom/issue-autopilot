@@ -52,7 +52,7 @@ def _fixed_after(vuln: dict, pkg: str, version: str) -> str | None:
 def from_osv(ctx: Context) -> list[Signal]:
     pins = []  # (manifest, eco, name, version) -- OSV needs one concrete version, so ranges are skipped
     for manifest, eco, name, spec in manifest_deps(ctx):
-        if eco in OSV_ECOSYSTEM and bounds(spec)[3]:
+        if eco in OSV_ECOSYSTEM and len(b := bounds(spec)) == 1 and b[0][3]:
             pins.append((manifest, eco, name, re.sub(r"^=+", "", spec).strip()))
     if not pins:
         return []
