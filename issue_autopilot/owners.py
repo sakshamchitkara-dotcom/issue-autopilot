@@ -1,7 +1,6 @@
 """Pick an owner for an issue: CODEOWNERS first, then whoever last touched the flagged lines."""
 from __future__ import annotations
 
-import fnmatch
 import os
 import re
 import subprocess
@@ -31,15 +30,32 @@ def load_codeowners(root: str) -> list[tuple[str, list[str]]]:
     return []
 
 
-def matches(pattern: str, path: str) -> bool:
-    # ponytail: fnmatch's * also crosses "/", unlike gitignore; fine for typical CODEOWNERS files.
-    anchored = pattern.startswith("/")
+def _pattern_rx(pattern: str) -> re.Pattern:
+    """CODEOWNERS (gitignore-style) glob -> regex: `*`/`?` stay inside one path segment, `**` crosses.
+
+    A slash at the start or in the middle anchors the pattern to the repo root; otherwise it
+    matches at any depth. A match on a directory covers everything under it, except `dir/*`,
+    which GitHub documents as matching only direct children."""
+    anchored = "/" in pattern.rstrip("/")
     pat = pattern.strip("/")
-    if pat in ("*", "**"):
-        return True
-    if not anchored and "/" not in pat:  # bare name: matches a file or directory at any depth
-        return any(fnmatch.fnmatch(part, pat) for part in path.split("/"))
-    return fnmatch.fnmatch(path, pat) or path.startswith(pat.rstrip("*").rstrip("/") + "/")
+    out, i = [], 0
+    while i < len(pat):
+        if pat.startswith("**/", i):
+            out.append("(?:.*/)?")
+            i += 3
+        elif pat.startswith("**", i):
+            out.append(".*")
+            i += 2
+        else:
+            out.append({"*": "[^/]*", "?": "[^/]"}.get(pat[i], re.escape(pat[i])))
+            i += 1
+    prefix = "" if anchored else "(?:.*/)?"
+    suffix = "" if pat.endswith("/*") else "(?:/.*)?"
+    return re.compile(prefix + "".join(out) + suffix)
+
+
+def matches(pattern: str, path: str) -> bool:
+    return _pattern_rx(pattern).fullmatch(path) is not None
 
 
 def codeowner(rules: list[tuple[str, list[str]]], path: str) -> str | None:
