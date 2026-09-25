@@ -172,3 +172,16 @@ def test_assign_is_dry_run_unless_flagged_and_applied(repo, http, capsys):
     assigned = {c[2]["title"]: c[2].get("assignees") for c in writes(http)}
     assert assigned["Tech debt: 1 TODO comment in a.py"] == ["alice"]
     assert assigned["Tech debt: 1 FIXME comment in b.py"] is None  # Ada's email maps to no account
+
+
+def test_report_markdown_statuses(repo, http, capsys, tmp_path):
+    gone = render.render(triage.group([todos.Signal("todo", "gone.py", "TODO: x", path="gone.py", line=1)])[0])
+    base_routes(http, open_issues=[closed_issue_for(repo, "a.py", 3),
+                                   {"number": 4, "title": gone.title, "body": gone.body, "state": "open"}])
+    out_file = tmp_path.parent / "report.md"
+    run("report", repo, "--repo", "o/r", "--sources", "todo", "--out", str(out_file))
+    md = out_file.read_text()
+    assert md.startswith("# issue-autopilot report: o/r") and "| P2 | 2 | 2 |" in md
+    assert "| P2 | todo | `b.py` | 1 | - | new |" in md
+    assert "| P3 | todo | `a.py` | 1 | #3 | closed by a human |" in md
+    assert "- #4 Tech debt: 1 TODO comment in gone.py" in md and writes(http) == []
