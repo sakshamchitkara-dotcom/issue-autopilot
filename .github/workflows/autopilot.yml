@@ -45,3 +45,5 @@ jobs:
           # tests/ holds fake TODOs and secrets used as fixtures
           autopilot file . --repo "$GITHUB_REPOSITORY" --exclude 'tests/*' --max-issues 10 $FLAG
           autopilot close-resolved . --repo "$GITHUB_REPOSITORY" --exclude 'tests/*' $FLAG
+          # after file/close so the table shows the issues this run touched
+          autopilot report . --repo "$GITHUB_REPOSITORY" --exclude 'tests/*' >> "$GITHUB_STEP_SUMMARY"
