@@ -96,9 +96,16 @@ class GitHub:
         perms = self.repo(full_name).get("permissions") or {}
         return bool(perms.get("push") or perms.get("admin") or perms.get("maintain"))
 
-    def open_issues(self, full_name: str) -> list[dict]:
-        issues = self.paginate(f"/repos/{full_name}/issues?state=open")
+    def issues(self, full_name: str, state: str = "open") -> list[dict]:
+        issues = self.paginate(f"/repos/{full_name}/issues?state={state}")
         return [i for i in issues if "pull_request" not in i]
+
+    def open_issues(self, full_name: str) -> list[dict]:
+        return self.issues(full_name, "open")
+
+    def update_issue(self, full_name: str, number: int, **fields) -> dict:
+        """PATCH any of title/body/labels/state/assignees."""
+        return self.request("PATCH", f"/repos/{full_name}/issues/{number}", fields)[0]
 
     def create_issue(self, full_name: str, title: str, body: str, labels: list[str]) -> dict:
         return self.request(
@@ -109,11 +116,10 @@ class GitHub:
         self.request("POST", f"/repos/{full_name}/issues/{number}/comments", {"body": body})
 
     def close_issue(self, full_name: str, number: int) -> None:
-        self.request(
-            "PATCH",
-            f"/repos/{full_name}/issues/{number}",
-            {"state": "closed", "state_reason": "completed"},
-        )
+        self.update_issue(full_name, number, state="closed", state_reason="completed")
+
+    def add_labels(self, full_name: str, number: int, labels: list[str]) -> None:
+        self.request("POST", f"/repos/{full_name}/issues/{number}/labels", {"labels": labels})
 
 
 def parse_repo_slug(value: str) -> str | None:
