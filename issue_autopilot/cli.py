@@ -408,7 +408,7 @@ def build_parser() -> argparse.ArgumentParser:
         else:
             sp.add_argument("target", nargs="?", default=target_default, help="local path or owner/repo (default: .)")
         sp.add_argument("--repo", help="owner/repo for API sources and filing (default: origin remote)")
-        sp.add_argument("--sources", help="comma-separated: todo,secret,deps,advisory,ci,actions,flaky,stale-pr (default: all)")
+        sp.add_argument("--sources", help="comma-separated: todo,secret,deps,advisory,ci,actions,flaky,stale-pr,hygiene (default: all)")
         sp.add_argument("--stale-days", type=int, default=30, help="PR idle days before it counts as stale")
         sp.add_argument("--exclude", action="append", default=[], metavar="GLOB",
                         help="skip files matching this glob for file-based sources (repeatable), e.g. 'tests/*'")

@@ -36,6 +36,8 @@ def title_for(issue: Issue) -> str:
         return f"CI: {n} outdated GitHub Action{'s' * (n != 1)} in {g}"
     if issue.kind == "flaky":
         return f"Flaky CI: {n} job{'s' * (n != 1)} in {g} pass only on retry"
+    if issue.kind == "hygiene":
+        return "Repo hygiene: missing " + " and ".join(s.meta["file"] for s in issue.signals)
     if issue.kind == "stale-pr":
         return f"Stale PRs: {n} open pull request{'s' * (n != 1)} with no recent activity"
     return f"{issue.kind}: {n} signal{'s' * (n != 1)} in {g}"
@@ -55,6 +57,9 @@ def intro_for(issue: Issue) -> str:
         "flaky": "These jobs failed and then passed on the same commit, either on a re-run or in a second run. "
                  "Flaky jobs hide real failures and train people to click re-run. Find the nondeterminism "
                  "(timing, ordering, network, shared state) or quarantine the test.",
+        "hygiene": "GitHub's community profile expects these files. A license tells people what they may do "
+                   "with the code; a security policy tells them how to report a vulnerability without "
+                   "opening a public issue. GitHub offers templates for both when you add the file in the web UI.",
         "stale-pr": "These pull requests have had no activity for a while. Merge, close, or ping for review.",
     }.get(issue.kind, "Automatically detected signals.")
 

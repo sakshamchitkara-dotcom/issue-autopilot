@@ -18,6 +18,7 @@ KIND_LABELS = {
     "stale-pr": "stale",
     "secret": "security",
     "advisory": "security",
+    "hygiene": "repo-hygiene",
 }
 # sig= was added in 0.2; v0.1 markers without it still parse (digest None).
 MARKER_RX = re.compile(r"<!--\s*issue-autopilot\s+fp=([0-9a-f]{16})\s+kind=([\w-]+)(?:\s+sig=([0-9a-f]{12}))?\s*-->")
