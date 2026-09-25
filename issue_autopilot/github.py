@@ -119,6 +119,23 @@ class GitHub:
         issues = self.paginate(f"/repos/{full_name}/issues?state={state}")
         return [i for i in issues if "pull_request" not in i]
 
+    def issues_after(self, full_name: str, number: int, limit: int = 50) -> list[dict]:
+        """Issues numbered above `number`, fetched one by one. Listing lags a few seconds behind creates,
+        GET by number doesn't, so this catches issues a run filed moments ago. Stops at the first gap."""
+        out = []
+        for n in range(number + 1, number + 1 + limit):
+            try:
+                gi = self.get(f"/repos/{full_name}/issues/{n}")
+            except GitHubError as e:
+                if e.status == 410:  # deleted issue: later numbers may still exist
+                    continue
+                if e.status == 404:
+                    break
+                raise
+            if "pull_request" not in gi:
+                out.append(gi)
+        return out
+
     def open_issues(self, full_name: str) -> list[dict]:
         return self.issues(full_name, "open")
 

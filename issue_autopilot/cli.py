@@ -102,7 +102,10 @@ def existing_bot_issues(ctx: Context) -> dict[str, dict]:
     if not (ctx.gh and ctx.repo):
         return {}
     try:
-        return triage.index_existing(ctx.gh.issues(ctx.repo, "all"))
+        listed = ctx.gh.issues(ctx.repo, "all")
+        # the listing can miss issues filed seconds ago (e.g. by the previous run); probe past its end
+        listed += ctx.gh.issues_after(ctx.repo, max((i["number"] for i in listed), default=0))
+        return triage.index_existing(listed)
     except GitHubError as e:
         die(f"could not list issues on {ctx.repo}: {e}")
 
