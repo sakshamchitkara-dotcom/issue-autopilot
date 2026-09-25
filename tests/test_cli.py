@@ -185,3 +185,13 @@ def test_report_markdown_statuses(repo, http, capsys, tmp_path):
     assert "| P2 | todo | `b.py` | 1 | - | new |" in md
     assert "| P3 | todo | `a.py` | 1 | #3 | closed by a human |" in md
     assert "- #4 Tech debt: 1 TODO comment in gone.py" in md and writes(http) == []
+
+
+def test_line_shift_only_edits_silently(repo, http, capsys):
+    cur = closed_issue_for(repo, "a.py", 7)
+    legacy = {**cur, "state": "open", "body": cur["body"].replace("a.py:1", "a.py:40").split(" sig=")[0] + " -->"}
+    base_routes(http, open_issues=[legacy])
+    http.add("PATCH", f"{API}/repos/o/r/issues/7", {})
+    http.add("POST", f"{API}/repos/o/r/issues", {"number": 8, "html_url": "u"})
+    run("file", repo, "--repo", "o/r", "--sources", "todo", "--apply")
+    assert [(m, u) for m, u, _ in writes(http) if "/issues/7" in u] == [("PATCH", f"{API}/repos/o/r/issues/7")]

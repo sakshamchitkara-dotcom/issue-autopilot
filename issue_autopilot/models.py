@@ -39,8 +39,9 @@ class Issue:
 
     @property
     def digest(self) -> str:
-        """Hash of what the issue says. Excludes volatile bits (blame age, log text) so it only moves on real change."""
-        keys = sorted(f"{s.path}|{s.line}|{s.priority}|{s.summary}" for s in self.signals)
+        """Hash of what the issue says. Excludes volatile bits (line numbers, blame age, log text) so it
+        only moves on real change; an edit above a TODO must not rewrite its issue."""
+        keys = sorted(f"{s.path}|{s.priority}|{s.summary}" for s in self.signals)
         return hashlib.sha256("\n".join(keys).encode()).hexdigest()[:12]
 
     @property
