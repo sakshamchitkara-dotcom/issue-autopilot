@@ -46,3 +46,33 @@ def test_registry_outage_fails_source(tmp_path, http):
     http.add("GET", "https://pypi.org/pypi/requests/json", {}, status=503)
     with pytest.raises(RuntimeError, match="registry lookup"):
         deps.scan(Context(path=str(tmp_path), repo=None, gh=None))
+
+
+PYPROJECT = """
+[project]
+name = "demo"
+dependencies = ["httpx>=0.20,<0.21", "rich ~= 10.0", "click"]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+django = "^3.2"
+pydantic = { version = "~1.8", extras = ["email"] }
+local = { path = "../local" }
+
+[tool.poetry.group.dev.dependencies]
+pytest = "7.0.0"
+"""
+
+
+def test_pyproject_project_and_poetry():
+    assert deps.parse_pyproject(PYPROJECT) == [
+        ("httpx", ">=0.20,<0.21"), ("rich", "~= 10.0"),
+        ("django", "^3.2"), ("pydantic", "~1.8"), ("pytest", "7.0.0")]
+    assert deps.parse_pyproject("not [toml") == []
+
+
+def test_scan_reads_pyproject(tmp_path, http):
+    (tmp_path / "pyproject.toml").write_text('[tool.poetry.dependencies]\npython = "^3.10"\ndjango = "^3.2"\n')
+    http.add("GET", "https://pypi.org/pypi/django/json", {"info": {"version": "5.2.1"}})
+    sigs = deps.scan(Context(path=str(tmp_path), repo=None, gh=None))
+    assert [(s.group, s.summary) for s in sigs] == [("pyproject.toml", "django ^3.2 → 5.2.1 (major)")]
