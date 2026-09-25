@@ -44,18 +44,12 @@ def run_checks(target: str, repo: str | None, sources: list[str] | None) -> list
     if token and repo:
         gh = GitHub(token)
         try:
-            add(OK, "identity", gh.whoami())
-        except GitHubError as e:
-            if e.status == 403:  # installation tokens (Actions GITHUB_TOKEN, GitHub Apps) can't read /user
-                add(OK, "identity", "installation token (GitHub App or Actions GITHUB_TOKEN)")
-            else:
-                add(FAIL, "identity", str(e))
-        try:
-            push = gh.can_push(repo)
+            who, push = gh.write_access(repo)
+            add(OK, "identity", who)
             add(OK if push else WARN, "push access", "yes: --apply can write issues" if push
                 else "no: dry runs work, --apply will be refused")
         except GitHubError as e:
-            add(FAIL, "repo access", str(e))
+            add(FAIL, "identity", str(e))
         for name, path, source, missing in (
             ("issues", f"/repos/{repo}/issues?state=all&per_page=1", None, FAIL),
             ("dependabot alerts", f"/repos/{repo}/dependabot/alerts?state=open&per_page=1", "advisory", WARN),

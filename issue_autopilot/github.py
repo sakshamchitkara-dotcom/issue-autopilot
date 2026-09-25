@@ -103,6 +103,18 @@ class GitHub:
         perms = self.repo(full_name).get("permissions") or {}
         return bool(perms.get("push") or perms.get("admin") or perms.get("maintain"))
 
+    def write_access(self, full_name: str) -> tuple[str, bool]:
+        """(who, may write issues). Installation tokens (Actions' GITHUB_TOKEN, GitHub Apps) can't read
+        /user and get no per-user `permissions` on repos, so their scope is the installation's repo list."""
+        try:
+            login = self.whoami()
+        except GitHubError as e:
+            if e.status != 403:
+                raise
+            repos = self.paginate("/installation/repositories")
+            return "installation token", any(r["full_name"].lower() == full_name.lower() for r in repos)
+        return login, self.can_push(full_name)
+
     def issues(self, full_name: str, state: str = "open") -> list[dict]:
         issues = self.paginate(f"/repos/{full_name}/issues?state={state}")
         return [i for i in issues if "pull_request" not in i]
