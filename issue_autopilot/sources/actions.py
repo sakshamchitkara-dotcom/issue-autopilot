@@ -10,17 +10,17 @@ from . import Context
 TIMESTAMP = re.compile(r"^\d{4}-\d\d-\d\dT[\d:.]+Z ")
 ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 ERROR = re.compile(r"##\[error\]|\berror\b|\bERROR\b|\bFAILED\b|Traceback|\bfailed\b|AssertionError|Exception", re.I)
-NOISE = re.compile(r"Process completed with exit code|##\[group\]|##\[endgroup\]")
+NOISE = re.compile(r"Process completed with exit code|^##\[(?:end)?group\]|^\[command\]|^Post job cleanup")
 
 
-def extract_error(log: str, before: int = 15, after: int = 3, cap: int = 40) -> str:
+def extract_error(log: str, before: int = 12, after: int = 2, cap: int = 40) -> str:
     lines = [ANSI.sub("", TIMESTAMP.sub("", ln)).rstrip() for ln in log.splitlines()]
-    hits = [i for i, ln in enumerate(lines) if ERROR.search(ln) and not NOISE.search(ln)]
+    lines = [ln for ln in lines if not NOISE.search(ln)]
+    hits = [i for i, ln in enumerate(lines) if ERROR.search(ln)]
     if not hits:
         return "\n".join(lines[-cap:])
     i = hits[-1]
-    window = [ln for ln in lines[max(0, i - before): i + after + 1] if not NOISE.search(ln)]
-    return "\n".join(window[-cap:])
+    return "\n".join(lines[max(0, i - before): i + after + 1][-cap:])
 
 
 def scan(ctx: Context) -> list[Signal] | None:

@@ -10,6 +10,8 @@ LOG = """2024-05-01T10:00:00.0000000Z ##[group]Run pytest
 2024-05-01T10:00:02.0000000Z tests/test_x.py::test_add FAILED
 2024-05-01T10:00:03.0000000Z E   AssertionError: assert 3 == 4
 2024-05-01T10:00:04.0000000Z ##[error]Process completed with exit code 1.
+2024-05-01T10:00:05.0000000Z Post job cleanup.
+2024-05-01T10:00:06.0000000Z [command]/usr/bin/git version
 """
 
 
@@ -21,6 +23,7 @@ def test_extract_error_strips_noise():
     out = actions.extract_error(LOG)
     assert "AssertionError: assert 3 == 4" in out and "FAILED" in out
     assert "exit code" not in out and "2024-05-01T" not in out
+    assert "[command]" not in out and "Post job" not in out
 
 
 def test_failing_workflow_signal(http):
