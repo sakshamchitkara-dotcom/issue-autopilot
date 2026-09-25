@@ -52,6 +52,7 @@ autopilot file . --apply --reopen      # reopen autopilot issues a human closed,
 autopilot close-resolved .             # dry run: list autopilot issues whose signals vanished
 autopilot close-resolved . --apply     # comment on, label and close them
 autopilot report . --out report.md     # read-only Markdown summary of groups and their issue status
+autopilot doctor .                     # check token, push access and what each source can read (exit 1 on failures)
 ```
 
 `--repo owner/repo` overrides the repo that's inferred from the checkout's `origin`. `--no-llm` forces the template output.

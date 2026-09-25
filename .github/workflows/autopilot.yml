@@ -40,6 +40,7 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}  # optional; templates are used when empty
           APPLY: ${{ inputs.apply == true || vars.AUTOPILOT_APPLY == 'true' }}
         run: |
+          autopilot doctor . --repo "$GITHUB_REPOSITORY"  # logs what this token can and can't do
           FLAG=""
           if [ "$APPLY" = "true" ]; then FLAG="--apply"; fi
           # tests/ holds fake TODOs and secrets used as fixtures

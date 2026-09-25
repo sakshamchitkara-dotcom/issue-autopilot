@@ -1,4 +1,4 @@
-"""autopilot CLI: scan | file | report | close-resolved. Every write path is dry-run unless --apply."""
+"""autopilot CLI: scan | file | report | close-resolved | doctor. Every write path is dry-run unless --apply."""
 from __future__ import annotations
 
 import argparse
@@ -11,7 +11,7 @@ import tempfile
 from dataclasses import asdict
 from datetime import datetime, timezone
 
-from . import owners, triage
+from . import doctor, owners, triage
 from .github import GitHub, GitHubError, get_token, parse_repo_slug, repo_from_checkout
 from .models import PRIORITIES, Issue
 from .render import changelog, no_pings, render
@@ -333,6 +333,16 @@ def cmd_report(args) -> int:
     return 0
 
 
+def cmd_doctor(args) -> int:
+    checks = doctor.run_checks(args.target, args.repo, source_names(args))
+    if args.json:
+        print(json.dumps([{"status": st, "check": name, "detail": d} for st, name, d in checks], indent=2))
+    else:
+        for st, name, d in checks:
+            print(f"[{st:>4}] {name}: {d}")
+    return 1 if any(st == doctor.FAIL for st, _, _ in checks) else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="autopilot", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -374,6 +384,12 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--apply", action="store_true", help="actually close issues")
     c.add_argument("--max-issues", type=int, default=DEFAULT_CAP, help="max issues to close per run")
     c.set_defaults(func=cmd_close_resolved)
+    d = sub.add_parser("doctor", help="check token, repo access and source prerequisites (read-only)")
+    d.add_argument("target", nargs="?", default=".", help="local path or owner/repo (default: .)")
+    d.add_argument("--repo", help="owner/repo (default: origin remote)")
+    d.add_argument("--sources", help="only check what these sources need")
+    d.add_argument("--json", action="store_true")
+    d.set_defaults(func=cmd_doctor)
     return p
 
 
