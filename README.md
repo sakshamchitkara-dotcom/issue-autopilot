@@ -42,6 +42,7 @@ autopilot scan psf/requests --json     # remote repo: cloned into a temp dir
 autopilot file .                       # dry run: print the issues it would file
 autopilot file . --apply               # create them (needs push access; capped at 10)
 autopilot file . --apply --sources todo,secret --max-issues 3
+autopilot scan . --exclude 'tests/*'   # skip fixture files (repeatable glob)
 autopilot close-resolved .             # dry run: list autopilot issues whose signals vanished
 autopilot close-resolved . --apply     # comment on and close them
 ```
@@ -58,7 +59,62 @@ When `ANTHROPIC_API_KEY` is set and `anthropic` is installed, each new issue's t
 
 ## Adding a source
 
-Write `scan(ctx) -> list[Signal] | None` in `issue_autopilot/sources/<name>.py` and add it to the registry in `sources/__init__.py`. Return `None` when the source doesn't apply (for example, when there's no repo). Signals that share a `(kind, group)` become one issue.
+Write `scan(ctx) -> list[Signal] | None` in `issue_autopilot/sources/<name>.py` and add it to `_registry()` in `sources/__init__.py`. Return `None` when the source doesn't apply (for example, when there's no repo). Signals that share a `(kind, group)` become one issue.
+
+## Real run (verification log)
+
+These runs used the throwaway repo [issue-autopilot-sandbox](https://github.com/sakshamchitkara-dotcom/issue-autopilot-sandbox). It was seeded with TODOs, a hardcoded password, old pins and a failing workflow.
+
+Dry run (excerpt):
+
+```
+$ autopilot file ~/projects/issue-autopilot-sandbox
+[dry-run] 5 issue group(s): 5 new, 0 already open, 0 over cap (10) -> sakshamchitkara-dotcom/issue-autopilot-sandbox
+  1. [would create] CI failing: workflow 'check' is failing on main
+     Job `check`:
+     AssertionError: cache miss returned None
+  2. [would create] Security: possible hardcoded secret in app/settings.py
+     - [P1] `app/settings.py:2` possible generic-secret (Tr0u…(22 chars))
+  3. [would create] Dependencies: 2 outdated packages in requirements.txt
+  4. [would create] Tech debt: 2 FIXME/TODO comments in app/cache.py
+  5. [would create] Tech debt: 1 HACK comment in app/client.py
+```
+
+Apply with a cap of 4, apply again, then a third time to show dedupe:
+
+```
+$ autopilot file ~/projects/issue-autopilot-sandbox --apply --max-issues 4
+[apply] 5 issue group(s): 4 new, 0 already open, 1 over cap (4) -> sakshamchitkara-dotcom/issue-autopilot-sandbox
+  ~ deferred (cap reached): todo: app/client.py
+  + created #1: CI failing: workflow 'check' is failing on main
+  + created #2: Security: possible hardcoded secret in app/settings.py
+  + created #3: Dependencies: 2 outdated packages in requirements.txt
+  + created #4: Tech debt: 2 FIXME/TODO comments in app/cache.py
+created 4 issue(s) on sakshamchitkara-dotcom/issue-autopilot-sandbox as sakshamchitkara-dotcom
+
+$ autopilot file ~/projects/issue-autopilot-sandbox --apply
+[apply] 5 issue group(s): 1 new, 4 already open, 0 over cap (10) -> ...
+  + created #5: Tech debt: 1 HACK comment in app/client.py
+
+$ autopilot file ~/projects/issue-autopilot-sandbox --apply
+[apply] 5 issue group(s): 0 new, 5 already open, 0 over cap (10) -> ...
+created 0 issue(s) on sakshamchitkara-dotcom/issue-autopilot-sandbox as sakshamchitkara-dotcom
+```
+
+After the HACK was removed and pushed:
+
+```
+$ autopilot close-resolved ~/projects/issue-autopilot-sandbox --apply
+[apply] 5 open autopilot issue(s) on sakshamchitkara-dotcom/issue-autopilot-sandbox; 1 resolved (checked sources: todo, secret, deps, ci, stale-pr)
+  x closed #5: Tech debt: 1 HACK comment in app/client.py
+```
+
+Running `--apply` against a repo you can't push to is refused before anything is written:
+
+```
+$ autopilot file psf/requests --sources todo --apply
+error: sakshamchitkara-dotcom has no push access to psf/requests; refusing to write issues there
+```
 
 ## Development
 
