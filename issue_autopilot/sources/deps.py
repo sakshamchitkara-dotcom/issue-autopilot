@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import urllib.error
 import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 
@@ -55,16 +56,26 @@ def scan(ctx: Context) -> list[Signal] | None:
         elif base == "package.json":
             wanted += [(rel, "npm", n, v) for n, v in parse_package_json(text)]
 
+    errors: list[str] = []
+
     def lookup(item):
         _, eco, name, _ = item
         try:
             return (pypi_latest if eco == "pypi" else npm_latest)(name)
+        except urllib.error.HTTPError as e:
+            if e.code == 404:  # private / unpublished package: nothing to compare against
+                ctx.warnings.append(f"deps: {eco}:{name} not found on registry, skipped")
+                return None
+            errors.append(f"{eco}:{name}: {e}")
         except Exception as e:
-            ctx.warnings.append(f"deps: could not look up {eco}:{name}: {e}")
-            return None
+            errors.append(f"{eco}:{name}: {e}")
+        return None
 
     with ThreadPoolExecutor(max_workers=8) as pool:
         latest = list(pool.map(lookup, wanted))
+    if errors:
+        # Fail the whole source: partial results could make close-resolved close live issues.
+        raise RuntimeError(f"{len(errors)} registry lookup(s) failed, e.g. {errors[0]}")
 
     signals = []
     for (manifest, eco, name, current), newest in zip(wanted, latest):

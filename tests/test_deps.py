@@ -24,3 +24,11 @@ def test_scan_flags_outdated(tmp_path, http):
         ("requests 2.0.0 → 2.32.3", "P3", "requirements.txt"),
     ]
     assert any("@scope/pkg" in w for w in ctx.warnings)
+
+
+def test_registry_outage_fails_source(tmp_path, http):
+    import pytest
+    (tmp_path / "requirements.txt").write_text("requests==2.0.0\n")
+    http.add("GET", "https://pypi.org/pypi/requests/json", {}, status=503)
+    with pytest.raises(RuntimeError, match="registry lookup"):
+        deps.scan(Context(path=str(tmp_path), repo=None, gh=None))
