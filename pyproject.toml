@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "issue-autopilot"
-version = "0.2.0"
-description = "Turn repo signals (TODOs, failing CI, stale deps, stale PRs, leaked secrets) into deduped GitHub issues."
+version = "0.3.0"
+description = "Turn repo signals (TODOs, failing or flaky CI, outdated deps and actions, advisories, stale PRs, leaked secrets) into deduped GitHub issues."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
