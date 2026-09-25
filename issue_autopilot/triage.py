@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
+from dataclasses import dataclass, field
 
 from .models import PRIORITIES, Issue, Signal
 
@@ -57,11 +58,28 @@ def index_existing(open_issues: list[dict]) -> dict[str, dict]:
     return out
 
 
-def plan(issues: list[Issue], existing: dict[str, dict], cap: int) -> tuple[list[Issue], list[Issue], list[Issue]]:
-    """Split into (to_create, duplicates, over_cap)."""
-    new = [i for i in issues if i.fingerprint not in existing]
-    dupes = [i for i in issues if i.fingerprint in existing]
-    return new[:cap], dupes, new[cap:]
+@dataclass
+class Plan:
+    create: list[Issue] = field(default_factory=list)
+    update: list[Issue] = field(default_factory=list)  # open, but the signals changed
+    unchanged: list[Issue] = field(default_factory=list)
+    over: list[Issue] = field(default_factory=list)  # deferred by the per-run cap
+
+
+def plan(issues: list[Issue], existing: dict[str, dict], cap: int) -> Plan:
+    """Decide what to do with each issue group. Creates and edits are capped separately."""
+    p = Plan()
+    for i in issues:
+        gi = existing.get(i.fingerprint)
+        if gi is None:
+            p.create.append(i)
+        elif marker_digest(gi.get("body")) != i.digest:
+            p.update.append(i)
+        else:
+            p.unchanged.append(i)
+    p.over = p.create[cap:] + p.update[cap:]
+    p.create, p.update = p.create[:cap], p.update[:cap]
+    return p
 
 
 def resolved(existing: dict[str, dict], current: list[Issue], scanned_kinds: list[str]) -> list[dict]:

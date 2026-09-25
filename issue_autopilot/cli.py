@@ -12,8 +12,8 @@ from dataclasses import asdict
 
 from . import triage
 from .github import GitHub, GitHubError, get_token, parse_repo_slug, repo_from_checkout
-from .models import Issue
-from .render import render
+from .models import PRIORITIES, Issue
+from .render import changelog, render
 from .sources import Context, run_sources
 from .summarize import make_client, polish
 
@@ -122,22 +122,43 @@ def cmd_file(args) -> int:
         ctx, issues, _ = collect(args, tmp)
     login = require_write_access(ctx) if args.apply else None
     existing = existing_bot_issues(ctx)
-    new, dupes, over = triage.plan(issues, existing, args.max_issues)
+    p = triage.plan(issues, existing, args.max_issues)
     client = None if args.no_llm else make_client()
-    for issue in new:
+    for issue in p.create + p.update:
         polish(issue, client) if client else render(issue)
 
     mode = "apply" if args.apply else "dry-run"
     where = ctx.repo or "(no GitHub repo)"
-    print(f"[{mode}] {len(issues)} issue group(s): {len(new)} new, {len(dupes)} already open, "
-          f"{len(over)} over cap ({args.max_issues}) -> {where}")
-    for i in dupes:
+    print(f"[{mode}] {len(issues)} issue group(s): {len(p.create)} new, {len(p.update)} changed, "
+          f"{len(p.unchanged)} already open, {len(p.over)} over cap ({args.max_issues}) -> {where}")
+    for i in p.unchanged:
         gi = existing[i.fingerprint]
         print(f"  = skip (already open #{gi['number']}): {gi['title']}")
-    for i in over:
+    for i in p.over:
         print(f"  ~ deferred (cap reached): {i.kind}: {i.group}")
+
+    edited = 0
+    for issue in p.update:
+        gi = existing[issue.fingerprint]
+        note = changelog(gi.get("body"), issue.body)
+        if not args.apply:
+            print(f"\n  ~ [would update] #{gi['number']}: {issue.title}\n    changelog comment:")
+            print(indent(note))
+            continue
+        # Keep labels a human added; only swap our own priority label.
+        keep = [lb["name"] for lb in gi.get("labels", []) if lb["name"] not in PRIORITIES]
+        labels = list(dict.fromkeys(keep + issue.labels))
+        try:
+            ctx.gh.update_issue(ctx.repo, gi["number"], title=issue.title, body=issue.body, labels=labels)
+            ctx.gh.comment(ctx.repo, gi["number"], note)
+        except GitHubError as e:
+            print(f"  ! failed to update #{gi['number']}: {e}", file=sys.stderr)
+            continue
+        edited += 1
+        print(f"  ~ updated #{gi['number']}: {issue.title}")
+
     created = 0
-    for n, issue in enumerate(new, 1):
+    for n, issue in enumerate(p.create, 1):
         if not args.apply:
             print(f"\n  {n}. [would create] {issue.title}")
             print(f"     labels: {', '.join(issue.labels)}   fp={issue.fingerprint}")
@@ -151,9 +172,9 @@ def cmd_file(args) -> int:
         created += 1
         print(f"  + created #{gi['number']}: {issue.title}\n    {gi['html_url']}")
     if args.apply:
-        print(f"\ncreated {created} issue(s) on {ctx.repo} as {login}")
+        print(f"\ncreated {created}, updated {edited} issue(s) on {ctx.repo} as {login}")
     else:
-        print("\n(dry run: nothing was written; re-run with --apply to create these issues)")
+        print("\n(dry run: nothing was written; re-run with --apply to create/update these issues)")
     return 0
 
 

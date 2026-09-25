@@ -38,8 +38,26 @@ def test_render_neutralizes_mentions():
 def test_plan_dedupes_and_caps():
     issues = [render.render(i) for i in triage.group(sigs())]
     existing = triage.index_existing([{"number": 7, "body": issues[0].body}, {"number": 8, "body": "unrelated"}])
-    new, dupes, over = triage.plan(issues, existing, cap=1)
-    assert dupes == [issues[0]] and new == [issues[1]] and over == [issues[2]]
+    p = triage.plan(issues, existing, cap=1)
+    assert p.unchanged == [issues[0]] and p.create == [issues[1]] and p.over == [issues[2]]
+
+
+def test_plan_flags_changed_and_legacy_groups():
+    issues = [render.render(i) for i in triage.group(sigs())]
+    changed = triage.group(sigs() + [Signal("todo", "a.py", "TODO: new", "P3", "a.py", 7)])
+    legacy = issues[2].body.replace(f" sig={issues[2].digest}", "")
+    existing = triage.index_existing([{"number": 1, "body": issues[0].body}, {"number": 2, "body": issues[1].body},
+                                      {"number": 3, "body": legacy}])
+    p = triage.plan(changed, existing, cap=10)
+    assert [i.group for i in p.update] == ["a.py", "b.py"] and [i.group for i in p.unchanged] == ["c.py"]
+
+
+def test_changelog_lists_added_and_removed_ignoring_age():
+    old = "- [P3] `a.py:1` TODO: x (Ada, 3d old)\n- [P3] `a.py:2` TODO: y (Ada, 3d old)\n"
+    new = "- [P3] `a.py:1` TODO: x (Ada, 9d old)\n- [P2] `a.py:5` FIXME: z @bob\n"
+    note = render.changelog(old, new)
+    assert "**Added**\n- [P2] `a.py:5` FIXME: z @\u200bbob" in note
+    assert "**Removed**\n- [P3] `a.py:2` TODO: y" in note and "TODO: x" not in note
 
 
 def test_resolved_only_for_scanned_kinds():
