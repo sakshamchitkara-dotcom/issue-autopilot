@@ -58,7 +58,7 @@ def iter_text_files(root: str, exclude: list[str] | None = None,
 
 
 def _registry() -> dict[str, Callable[[Context], list[Signal]]]:
-    from . import action_versions, actions, advisories, deps, prs, secrets, todos
+    from . import action_versions, actions, advisories, deps, flaky, prs, secrets, todos
 
     return {
         "todo": todos.scan,
@@ -67,6 +67,7 @@ def _registry() -> dict[str, Callable[[Context], list[Signal]]]:
         "advisory": advisories.scan,
         "ci": actions.scan,
         "actions": action_versions.scan,
+        "flaky": flaky.scan,
         "stale-pr": prs.scan,
     }
 
