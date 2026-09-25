@@ -1,3 +1,4 @@
+import pytest
 import json
 from types import SimpleNamespace
 
@@ -136,3 +137,25 @@ def test_changelog_empty_when_only_lines_or_marker_moved():
 def test_changelog_ignores_new_ci_run_links():
     old = "- [P1] `ci.yml` Workflow 'x' is failing on main ([run](https://g/runs/1) @ abc1234)"
     assert render.changelog(old, old.replace("runs/1", "runs/2").replace("abc1234", "def5678")) == ""
+
+
+def test_huge_group_is_truncated_but_keeps_its_marker():
+    sigs = [Signal("ci", "wf.yml", "Workflow 'x' is failing on main", detail="E" * 70_000)]
+    sigs += [Signal("ci", "wf.yml", f"extra {n}") for n in range(render.MAX_ITEMS + 5)]
+    issue = render.render(triage.group(sigs)[0])
+    assert len(issue.body) <= render.MAX_BODY and "…and 5 more" in issue.body
+    assert triage.parse_marker(issue.body) == (issue.fingerprint, "ci")
+    assert issue.title == "CI failing: workflow 'x' is failing on main"
+
+
+@pytest.mark.parametrize("kind,title", [
+    ("secret", "Security: possible hardcoded secrets in g"),
+    ("advisory", "Security: 2 known vulnerabilities in dependencies from g"),
+    ("deps", "Dependencies: 2 outdated packages in g"),
+    ("actions", "CI: 2 outdated GitHub Actions in g"),
+    ("flaky", "Flaky CI: 2 jobs in g pass only on retry"),
+    ("stale-pr", "Stale PRs: 2 open pull requests with no recent activity"),
+    ("other", "other: 2 signals in g"),
+])
+def test_titles_per_kind(kind, title):
+    assert render.title_for(triage.group([Signal(kind, "g", "a"), Signal(kind, "g", "b")])[0]) == title
