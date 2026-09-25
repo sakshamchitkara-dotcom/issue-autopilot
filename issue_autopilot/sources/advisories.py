@@ -1,17 +1,26 @@
 """Known vulnerabilities: GitHub Dependabot alerts when readable, else OSV.dev for exact pins."""
 from __future__ import annotations
 
+import json
 import re
+import sys
 from concurrent.futures import ThreadPoolExecutor
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:  # pragma: no cover
+    import tomli as tomllib
 
 from ..github import GitHubError, http_get_json, http_post_json
 from ..models import Signal
-from . import Context
+from . import Context, iter_text_files
 from .deps import bounds, manifest_deps, version_tuple
 
 OSV = "https://api.osv.dev/v1"
 OSV_ECOSYSTEM = {"pypi": "PyPI", "npm": "npm"}
 URGENT = {"critical", "high"}
+OSV_BATCH = 1000  # querybatch accepts at most 1000 queries
+LOCKFILE_BYTES = 50_000_000  # lockfiles are routinely over the 1 MB text-scan limit
 
 
 def _signal(manifest: str, pkg: str, version: str, vid: str, summary: str, severity: str,
@@ -49,15 +58,64 @@ def _fixed_after(vuln: dict, pkg: str, version: str) -> str | None:
     return later[0] if later else None
 
 
+def _npm_lock(text: str) -> list[tuple[str, str]]:
+    """(name, version) from package-lock.json: v2/v3 "packages", else v1's nested "dependencies"."""
+    data = json.loads(text)
+    if "packages" in data:
+        return [(key.rsplit("node_modules/", 1)[-1], p["version"]) for key, p in data["packages"].items()
+                if key and "version" in p and not p.get("link")]
+    out, stack = [], [data.get("dependencies") or {}]
+    while stack:
+        for name, p in stack.pop().items():
+            if "version" in p:
+                out.append((name, p["version"]))
+            stack.append(p.get("dependencies") or {})
+    return out
+
+
+def _toml_lock(text: str) -> list[tuple[str, str]]:
+    """(name, version) from poetry.lock / uv.lock, skipping local, git and editable packages."""
+    out = []
+    for p in tomllib.loads(text).get("package") or []:
+        src = p.get("source")
+        if isinstance(src, dict) and not ("registry" in src or src.get("type") == "legacy"):
+            continue
+        if "name" in p and "version" in p:
+            out.append((p["name"], p["version"]))
+    return out
+
+
+LOCKFILES = {"package-lock.json": ("npm", _npm_lock), "poetry.lock": ("pypi", _toml_lock),
+             "uv.lock": ("pypi", _toml_lock)}
+
+
+def lockfile_pins(ctx: Context) -> list[tuple[str, str, str, str]]:
+    """(lockfile, eco, name, version) for every locked package: covers ranges and transitive deps."""
+    pins = []
+    for rel, text in iter_text_files(ctx.path, ctx.options.get("exclude"), max_bytes=LOCKFILE_BYTES):
+        kind = LOCKFILES.get(rel.rsplit("/", 1)[-1])
+        if not kind:
+            continue
+        try:
+            pins += [(rel, kind[0], n, v) for n, v in kind[1](text)]
+        except (ValueError, KeyError, TypeError, tomllib.TOMLDecodeError) as e:
+            ctx.warnings.append(f"advisory: could not parse {rel} ({e}); skipped")
+    return pins
+
+
 def from_osv(ctx: Context) -> list[Signal]:
-    pins = []  # (manifest, eco, name, version) -- OSV needs one concrete version, so ranges are skipped
+    pins = []  # (file, eco, name, version) -- OSV needs one concrete version, so ranges come from lockfiles
     for manifest, eco, name, spec in manifest_deps(ctx):
         if eco in OSV_ECOSYSTEM and len(b := bounds(spec)) == 1 and b[0][3]:
             pins.append((manifest, eco, name, re.sub(r"^=+", "", spec).strip()))
+    seen_pins: set = set()
+    pins = [p for p in pins + lockfile_pins(ctx)
+            if (k := (p[1], p[2].lower(), p[3])) not in seen_pins and not seen_pins.add(k)]
     if not pins:
         return []
     queries = [{"package": {"name": n, "ecosystem": OSV_ECOSYSTEM[e]}, "version": v} for _, e, n, v in pins]
-    results = http_post_json(f"{OSV}/querybatch", {"queries": queries})["results"]
+    results = [r for i in range(0, len(queries), OSV_BATCH)
+               for r in http_post_json(f"{OSV}/querybatch", {"queries": queries[i:i + OSV_BATCH]})["results"]]
     ids = sorted({v["id"] for r in results for v in r.get("vulns") or []})
     with ThreadPoolExecutor(max_workers=8) as pool:  # errors propagate: a partial answer isn't safe to act on
         details = dict(zip(ids, pool.map(lambda i: http_get_json(f"{OSV}/vulns/{i}"), ids)))

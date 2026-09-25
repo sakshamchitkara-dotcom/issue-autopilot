@@ -46,3 +46,45 @@ def test_osv_outage_fails_source(tmp_path, http):
     http.add("POST", f"{OSV}/querybatch", {}, status=502)
     with pytest.raises(Exception):
         advisories.scan(Context(path=str(tmp_path), repo=None, gh=None))
+
+
+PACKAGE_LOCK = """{"lockfileVersion": 3, "packages": {
+  "": {"name": "app", "dependencies": {"lodash": "^4.17.0"}},
+  "node_modules/lodash": {"version": "4.17.20"},
+  "node_modules/a/node_modules/lodash": {"version": "4.17.20"},
+  "node_modules/mine": {"link": true, "resolved": "../mine"}}}"""
+POETRY_LOCK = """
+[[package]]
+name = "requests"
+version = "2.25.0"
+
+[[package]]
+name = "local-lib"
+version = "0.1.0"
+[package.source]
+type = "directory"
+url = "../local-lib"
+"""
+
+
+def test_lockfiles_cover_ranges_and_dedupe(tmp_path, http):
+    (tmp_path / "package.json").write_text('{"dependencies": {"lodash": "^4.17.0"}}')
+    (tmp_path / "package-lock.json").write_text(PACKAGE_LOCK)
+    (tmp_path / "requirements.txt").write_text("requests==2.25.0\n")
+    (tmp_path / "poetry.lock").write_text(POETRY_LOCK)
+    (tmp_path / "web").mkdir()
+    (tmp_path / "web" / "package-lock.json").write_text("{not json")
+    http.add("POST", f"{OSV}/querybatch", {"results": [{"vulns": [{"id": "GHSA-a"}]}, {}]})
+    http.add("GET", f"{OSV}/vulns/GHSA-a", vuln("GHSA-a"))
+    ctx = Context(path=str(tmp_path), repo=None, gh=None)
+    sigs = advisories.scan(ctx)
+    queries = [c for c in http.calls if c[0] == "POST"][0][2]["queries"]
+    # manifest pin first; the duplicate lodash and the poetry copy of requests are dropped, local-lib skipped
+    assert [(q["package"]["name"], q["version"]) for q in queries] == [("requests", "2.25.0"), ("lodash", "4.17.20")]
+    assert [s.group for s in sigs] == ["requirements.txt"]
+    assert any("web/package-lock.json" in w for w in ctx.warnings)
+
+
+def test_npm_lock_v1():
+    text = '{"lockfileVersion": 1, "dependencies": {"a": {"version": "1.0.0", "dependencies": {"b": {"version": "2.0.0"}}}}}'
+    assert sorted(advisories._npm_lock(text)) == [("a", "1.0.0"), ("b", "2.0.0")]
