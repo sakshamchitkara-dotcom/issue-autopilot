@@ -12,6 +12,8 @@ Turns signals already sitting in a repository into deduplicated GitHub issues. I
 | `actions`  | Workflow steps whose `uses: owner/repo@vN` tag is at least one major version behind the action's latest release (SHA and branch pins are skipped) | workflow |
 | `flaky`    | CI jobs that failed and then passed on the same commit (a re-run that went green, or two runs of one commit that disagree), at least twice in the last 500 completed runs | workflow |
 | `stale-pr` | Open PRs with no activity for `--stale-days` (default 30) | repo |
+| `hygiene`  | No `LICENSE` (skipped for private repos) or no `SECURITY.md` (root, `.github/` or `docs/`) in the tracked tree | repo |
+| `large-file` | Committed binary files of at least `--large-file-mb` (default 5) MB; P2 from 50 MB, where GitHub starts warning | repo |
 
 It uses only the standard library (plus `tomli` on Python 3.10), and the GitHub REST client is built on `urllib`. The Claude summarizer is optional (`pip install .[llm]`).
 
@@ -313,6 +315,32 @@ $ autopilot scan . --sources deps --exclude 'tests/*'
      - pytest >=7 → 9.1.1 (allowed, but the floor is 2 majors behind)
 ```
 
+### v0.5 run
+
+`yarn.lock` aliases (`"eslint-v7@npm:eslint@^7.7.0"`) used to be queried under the alias name. After the fix, the real lockfiles above parse to the reference set, and a full OSV.dev scan of each finishes in a few seconds (read-only copies in a scratch directory; output trimmed):
+
+```
+$ autopilot scan ./react --sources advisory      # facebook/react yarn.lock, 2387 packages
+298 signal(s) in 1 group(s)
+[P1] advisory: yarn.lock  (fp=eb0bc1298e499a21)
+     - @babel/traverse 7.8.3: GHSA-67hx-6x53-jw92 Babel vulnerable to arbitrary code execution when compiling specifically crafted malicious code (CRITICAL severity; fixed in 7.23.2)
+$ autopilot scan ./vite --sources advisory       # vitejs/vite pnpm-lock.yaml, 1304 packages
+23 signal(s) in 1 group(s)
+```
+
+The new sources on a public repo and on this one (which is how this repo got its `LICENSE`):
+
+```
+$ autopilot scan Textualize/rich --sources large-file,hygiene --large-file-mb 1
+[P3] large-file: repository  (fp=2e58099aed1d3d98)
+     - imgs/downloader.gif 2.5 MB binary file
+     - imgs/progress.gif 2.3 MB binary file
+     - imgs/spinners.gif 1.4 MB binary file
+$ autopilot scan . --sources hygiene
+[P3] hygiene: repository  (fp=00648161be2c3bb6)
+     - No SECURITY.md: reporters have no private way to disclose a vulnerability
+```
+
 ## Development
 
 ```bash
@@ -324,7 +352,7 @@ All HTTP in the tests goes through a fake `urlopen` route table (`tests/conftest
 
 ## Known limits
 
-- `advisory` via OSV.dev needs a concrete version: a range such as `>=2,<3` is only checked when a lockfile (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `poetry.lock`, `uv.lock`) pins it. The yarn and pnpm parsers read only package names and versions, line by line; they were checked against hand-written v1/berry and pnpm v5/v6/v9 samples, not a large real-world lockfile.
+- `advisory` via OSV.dev needs a concrete version: a range such as `>=2,<3` is only checked when a lockfile (`package-lock.json`, `yarn.lock`, `pnpm-lock.yaml`, `poetry.lock`, `uv.lock`) pins it. The yarn and pnpm parsers read only package names and versions, line by line. They produce exactly the same `(name, version)` set as yarn's own parsers / PyYAML on the lockfiles of facebook/react (yarn v1), babel/babel and yarnpkg/berry (berry), and vuejs/core (pnpm 5.4, 6.0, 9.0) and vitejs/vite (pnpm 9.0). pnpm 10's package-manager document (the pinned pnpm binary) is checked too.
 - Versions are compared by their release numbers only, so a pre-release such as `1.0rc1` counts as `1.0`.
 - `deps` compares manifest specs only; it doesn't read lockfiles.
 - Team owners (`@org/team`) can't be assigned, so they are skipped.
