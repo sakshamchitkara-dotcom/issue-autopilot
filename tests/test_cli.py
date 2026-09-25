@@ -300,3 +300,19 @@ def test_json_output_for_file_close_and_report(repo, http, capsys):
     assert {(g["group"], g["issue"], g["status"]) for g in data["groups"]} == {
         ("a.py", 3, "closed by a human"), ("b.py", None, "new"), ("c.py", None, "new")}
     assert writes(http) == []
+
+
+def test_apply_with_installation_token_checks_installation_repos(repo, http, capsys):
+    http.add("GET", f"{API}/user", {"message": "Resource not accessible by integration"}, status=403)
+    http.add("GET", f"{API}/installation/repositories?per_page=100", {"repositories": [{"full_name": "o/r"}]})
+    http.add("GET", ISSUES, [])
+    http.add("POST", f"{API}/repos/o/r/issues", {"number": 1, "html_url": "u"})
+    http.add("GET", f"{API}/repos/o/r/commits/", {"author": None})
+    run("file", repo, "--repo", "o/r", "--sources", "todo", "--apply", "--max-issues", "1")
+    assert "as installation token" in capsys.readouterr().out and len(writes(http)) == 1
+
+    http.calls.clear()
+    with pytest.raises(SystemExit):
+        run("file", repo, "--repo", "other/repo", "--sources", "todo", "--apply")
+    assert "installation token has no push access to other/repo" in capsys.readouterr().err
+    assert writes(http) == []
