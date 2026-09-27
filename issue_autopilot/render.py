@@ -38,6 +38,8 @@ def title_for(issue: Issue) -> str:
         return f"Flaky CI: {n} job{'s' * (n != 1)} in {g} pass only on retry"
     if issue.kind == "hygiene":
         return "Repo hygiene: missing " + " and ".join(s.meta["file"] for s in issue.signals)
+    if issue.kind == "large-file":
+        return f"Repo size: {n} large binary file{'s' * (n != 1)} committed"
     if issue.kind == "stale-pr":
         return f"Stale PRs: {n} open pull request{'s' * (n != 1)} with no recent activity"
     return f"{issue.kind}: {n} signal{'s' * (n != 1)} in {g}"
@@ -60,6 +62,9 @@ def intro_for(issue: Issue) -> str:
         "hygiene": "GitHub's community profile expects these files. A license tells people what they may do "
                    "with the code; a security policy tells them how to report a vulnerability without "
                    "opening a public issue. GitHub offers templates for both when you add the file in the web UI.",
+        "large-file": "These binary files are committed directly, so every clone downloads them (and every old "
+                      "version of them) forever. Move them to Git LFS or a release asset, or delete them if unused. "
+                      "Removing them from history needs a rewrite such as `git filter-repo`.",
         "stale-pr": "These pull requests have had no activity for a while. Merge, close, or ping for review.",
     }.get(issue.kind, "Automatically detected signals.")
 
