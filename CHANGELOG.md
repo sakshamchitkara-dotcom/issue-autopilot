@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.0 - 2026-09-25
+
+### Added
+- **`hygiene` source.** One issue per repo when the tracked tree has no `LICENSE` (any `LICENSE*`/`LICENCE*`/`COPYING*` in the root; skipped for private repos) or no `SECURITY.md` (root, `.github/` or `docs/`).
+- **`large-file` source.** Committed binary files of at least `--large-file-mb` (default 5) MB, largest first; P2 from 50 MB.
+- An MIT `LICENSE` file, matching what `pyproject.toml` already declared.
+
+### Fixed
+- `yarn.lock` aliases (`alias@npm:real@^1`) were checked under the alias name, so the real package was never looked up on OSV.dev. Git, GitHub-shorthand and tarball entries are no longer sent to OSV.dev as registry releases. Found by diffing against yarn's own parsers on the facebook/react, babel/babel and yarnpkg/berry lockfiles; all of them now match.
+- `scan` prints a signal's path when it has no line number.
+
+### Upgrading
+- Both new sources run by default, so the next `file` run may open a hygiene issue and a large-file issue. Leave them out with `--sources`.
+
 ## 0.4.0 - 2026-09-25
 
 ### Added
